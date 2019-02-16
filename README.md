@@ -35,6 +35,20 @@ This repo contains the full Jupyter Notebook and code for the Python talk on mac
   </tr>
 </table>
 
+## Jupyter notebook with all code
+
+<table>
+  <tr>
+    <td width="30%">
+         The whole presentation was put together in the Jupyer notebook in this repo under <a href="https://github.com/EthicalML/explainability-and-bias/blob/master/Bias%20Evaluation%20%26%20Explainability.ipynb">"Bias Evaluation & Explainability.ipynb"</a>. The notebook has all the examples, and requires the dependencies to be installed. In order to see the slides on the Jupyter notebook please find the instructions below.
+    </td>
+    <td width="70%">
+        <a href="https://github.com/EthicalML/explainability-and-bias/blob/master/Bias%20Evaluation%20%26%20Explainability.ipynb"><img src="images/notebook.png"></a>
+    </td>
+  </tr>
+</table>
+
+
 # XAI - ExplainableAI Library
 
 The library for explainable AI can be found in [this repo](https://github.com/EthicalML/XAI).
