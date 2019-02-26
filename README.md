@@ -14,10 +14,10 @@ This repo contains the full Jupyter Notebook and code for the Python talk on mac
 <table>
   <tr>
     <td width="30%">
-        This <a href="https://www.youtube.com/watch?v=GZpfBhQJ0H4">video of the talk presented at the Tensorflow London Meetup </a> which provides an overview on the motivations for machine learning explainability as well as techniques to introduce explainability and mitigate undesired biases.
+        This <a href="https://www.youtube.com/watch?v=rq95qznOZKw">video of the talk presented at the PyCon By 2019 Conference </a> which provides an overview on the motivations for machine learning explainability as well as techniques to introduce explainability and mitigate undesired biases.
     </td>
     <td width="70%">
-        <a href="https://www.youtube.com/watch?v=GZpfBhQJ0H4"><img src="images/video.jpg"></a>
+        <a href="https://www.youtube.com/watch?v=rq95qznOZKw"><img src="images/video.jpg"></a>
     </td>
   </tr>
 </table>
