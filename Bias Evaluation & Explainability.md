@@ -1,60 +1,835 @@
-[![Awesome](images/awesome.svg)](https://github.com/sindresorhus/awesome)
-[![Maintenance](https://img.shields.io/badge/Maintained%3F-YES-green.svg)](https://GitHub.com/Naereen/StrapDown.js/graphs/commit-activity)
-![GitHub](https://img.shields.io/badge/Languages-MULTI-blue.svg)
-![GitHub](https://img.shields.io/badge/License-MIT-lightgrey.svg)
-[![GitHub](https://img.shields.io/twitter/follow/axsaucedo.svg?label=Follow)](https://twitter.com/AxSaucedo/)
-	
 
-# A practical guide towards explainability and bias evaluation in machine learning
+# A practical guide towards explainability
+# and bias evaluation in machine learning
 
-This repo contains the full Jupyter Notebook and code for the Python talk on machine learning explainabilty and algorithmic bias. 
+<br>
+<br>
+<br>
+<br>
+<br>
 
-You can find the presentation in the following formats:
-* [Online slides (Reveal.JS) format](https://ethicalml.github.io/explainability-and-bias/#/)
-* [Jupyter notebook to follow code examples](https://github.com/EthicalML/explainability-and-bias/blob/master/Bias%20Evaluation%20%26%20Explainability.ipynb) (If it doesn't load it may be due to size)
-* Markdown format converted using jupyter nbconvert (scroll down)
+<br>
 
-This example uses the following open source libraries:
-* <a href="https://github.com/EthicalML/XAI">XAI</a> - We use XAI to showcase data analysis techniques 
-* <a href="https://github.com/SeldonIO/Alibi">Alibi</a> - We use Alibi to dive into black box model evaluation techniques 
-* <a href="https://github.com/SeldonIO/Seldon-core">Seldon Core</a> - We use seldon core to deploy and serve ML models and ML explainers
+<br>
 
-<!--
-## YouTube Video of Talk
+<br>
+<br>
 
-<table>
-  <tr>
-    <td width="30%">
-        This <a href="https://www.youtube.com/watch?v=rq95qznOZKw">video of the talk presented at the PyCon By 2019 Conference </a> which provides an overview on the motivations for machine learning explainability as well as techniques to introduce explainability and mitigate undesired biases.
-    </td>
-    <td width="70%">
-        <a href="https://www.youtube.com/watch?v=rq95qznOZKw"><img src="images/video.jpg"></a>
-    </td>
-  </tr>
+<h2>Alejandro Saucedo</h2>
+<br>
+Chief Scientist, The Institute for Ethical AI & Machine Learning
+<br>
+Director of ML Engineering, Seldon Technologies
+
+<br>
+
+<br><br><br>
+
+<hr>
+
+
+# Today
+
+<br>
+<br>
+
+## 1) Hands on example: Company "Hype-ML" automating loan approval process 
+
+<br>
+<br>
+
+## 2) Terminology + why it's not about "just removing bias"
+
+<br>
+<br>
+
+## 3) Data Analysis
+
+<br>
+<br>
+
+## 4) Model Evaluation
+
+
+<br>
+<br>
+
+## 4) Production Monitoring
+
+<br>
+
+<br><br><br>
+
+<hr>
+
+# Hype-ML - A NEW Project has come in!
+
+<br>
+
+* Insurance company has a process where domain expert approves/rejects loan applications
+
+<br>
+
+* They receive over 1m applications and want to automate the process
+
+<br>
+
+# Business wants it NOW!
+
+<br>
+
+* They heard their competitor is using "Machine Learning" and business says we need to use that
+
+
+
+<br><br><br>
+
+<hr>
+
+# The team had a look at how this worked
+
+<br>
+
+<img src="images/mlall.png" style="width:70vw">
+
+
+
+<br><br><br>
+
+<hr>
+
+# The team asked for DATA
+
+<br>
+<br>
+
+## Business gave them an excel sheet with 25 rows
+
+<br>
+<br>
+
+The team pushed back, and after a while they finally got a dataset with ~8000 rows
+
+
+
+
+<br><br><br>
+
+<hr>
+
+<br><br><br>
+
+
+# And so it begun...
+
+<br>
+
+<img src="images/copypasta.jpg" style="height:50vh">
+
+<br>
+<br>
+
+## The Hype-ML journey towards greatness...
+
+<br><br><br>
+
+<hr>
+
+<br><br><br>
+
+
+```python
+df_data, df_display = get_dataset_1()
+
+df_display.head()
+
+```
+
+
+
+
+<div>
+<style scoped>
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+<table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>age</th>
+      <th>workclass</th>
+      <th>education</th>
+      <th>education-num</th>
+      <th>marital-status</th>
+      <th>occupation</th>
+      <th>relationship</th>
+      <th>ethnicity</th>
+      <th>gender</th>
+      <th>capital-gain</th>
+      <th>capital-loss</th>
+      <th>hours-per-week</th>
+      <th>native-country</th>
+      <th>loan</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>0</th>
+      <td>39</td>
+      <td>State-gov</td>
+      <td>Bachelors</td>
+      <td>13</td>
+      <td>Never-married</td>
+      <td>Adm-clerical</td>
+      <td>Not-in-family</td>
+      <td>White</td>
+      <td>Male</td>
+      <td>2174</td>
+      <td>0</td>
+      <td>40</td>
+      <td>United-States</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>1</th>
+      <td>50</td>
+      <td>Self-emp-not-inc</td>
+      <td>Bachelors</td>
+      <td>13</td>
+      <td>Married-civ-spouse</td>
+      <td>Exec-managerial</td>
+      <td>Husband</td>
+      <td>White</td>
+      <td>Male</td>
+      <td>0</td>
+      <td>0</td>
+      <td>13</td>
+      <td>United-States</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>2</th>
+      <td>38</td>
+      <td>Private</td>
+      <td>HS-grad</td>
+      <td>9</td>
+      <td>Divorced</td>
+      <td>Handlers-cleaners</td>
+      <td>Not-in-family</td>
+      <td>White</td>
+      <td>Male</td>
+      <td>0</td>
+      <td>0</td>
+      <td>40</td>
+      <td>United-States</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>3</th>
+      <td>53</td>
+      <td>Private</td>
+      <td>11th</td>
+      <td>7</td>
+      <td>Married-civ-spouse</td>
+      <td>Handlers-cleaners</td>
+      <td>Husband</td>
+      <td>Black</td>
+      <td>Male</td>
+      <td>0</td>
+      <td>0</td>
+      <td>40</td>
+      <td>United-States</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>4</th>
+      <td>28</td>
+      <td>Private</td>
+      <td>Bachelors</td>
+      <td>13</td>
+      <td>Married-civ-spouse</td>
+      <td>Prof-specialty</td>
+      <td>Wife</td>
+      <td>Black</td>
+      <td>Female</td>
+      <td>0</td>
+      <td>0</td>
+      <td>40</td>
+      <td>Cuba</td>
+      <td>False</td>
+    </tr>
+  </tbody>
 </table>
--->
+</div>
 
-## Live Slides (Reveal.JS)
 
-<table>
-  <tr>
-    <td width="30%">
-         The presentation was performed using the <a href="https://github.com/damianavila/RISE">RISE plugin</a> to convert the Jupyter notebook into a reveal.js presentation. The reveal.js presentation is hosted live in this repo under the <a href="https://ethicalml.github.io/explainability-and-bias/#/1">index.html</a> page.
-    </td>
-    <td width="70%">
-        <a href="https://ethicalml.github.io/explainability-and-bias/#/1"><img src="images/cover.jpg"></a>
-    </td>
-  </tr>
+
+
+```python
+X = df_data.drop(label_column, axis=1).copy()
+y = df_data[label_column].astype(int).values.copy()
+
+X_train, X_valid, y_train, y_valid = \
+        train_test_split(X, y, test_size=0.2, random_state=7)
+
+print("Training size:", y_train.shape, "Testing size: ", y_valid.shape)
+```
+
+    Training size: (6400,) Testing size:  (1600,)
+
+
+
+<img src="images/train-test.png" style="width:70vw">
+
+
+```python
+# 1 layer, 100 neurons model, with softmax (0-1 probabilities)
+model = build_model(X)
+
+model.fit(f_in(X_train), y_train, epochs=10,
+    batch_size=512, shuffle=True, validation_data=(f_in(X_valid), y_valid),
+    callbacks=[PlotLossesKeras()], verbose=0, validation_split=0.05,)
+```
+
+
+![png](Bias%20Evaluation%20%26%20Explainability_files/Bias%20Evaluation%20%26%20Explainability_10_0.png)
+
+
+    Log-loss (cost function):
+    training   (min:    0.081, max:    0.728, cur:    0.081)
+    validation (min:    0.071, max:    0.642, cur:    0.071)
+    
+    Accuracy:
+    training   (min:    0.408, max:    0.988, cur:    0.988)
+    validation (min:    0.772, max:    0.988, cur:    0.988)
+
+
+
+
+
+    <keras.callbacks.History at 0x7f2897415b70>
+
+
+
+
+```python
+score = model.evaluate(f_in(X_valid), y_valid, verbose=1)
+print("Error %.4f: " % score[0])
+print("Accuracy %.4f: " % (score[1]*100))
+```
+
+    1600/1600 [==============================] - 0s 41us/step
+    Error 0.0707: 
+    Accuracy 98.7500: 
+
+
+# Accuracy is ~98%!
+
+<br>
+<br>
+<br>
+<br>
+
+### What a better result on a Friday evening!
+
+<br>
+<br>
+<br>
+
+# Time for PROD?
+
+
+<br><br><br>
+
+<hr>
+
+<br><br><br>
+
+
+# We push to PROD!
+
+<br>
+<br>
+<br>
+<br>
+
+### A few weeks go by...
+
+<br>
+
+
+<br><br><br>
+
+<hr>
+
+<br><br><br>
+
+
+# BUZZFEED NEWS: HYPE-ML DEPLOYS RACIST SEXIST AI!!!!
+
+<br>
+
+<img src="images/layer.jpg" style="height: 50vh">
+
+
+<br>
+
+
+# ...but... but we followed the instructions in the internet!
+
+
+<br><br><br>
+
+<hr>
+
+<br><br><br>
+
+
+# Time to diagnose!
+
+<br>
+<br>
+
+## We ask business to gather the 110 applications in production...
+
+<br>
+<br>
+
+## ...and label it to understand what went wrong
+
+
+<br><br><br>
+
+<hr>
+
+<br><br><br>
+
+
+```python
+X_prod, y_prod = get_production_dataset()
+
+print(X_prod.shape)
+X_prod.head()
+```
+
+    (110, 13)
+
+
+
+
+
+<div>
+<style scoped>
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+<table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>age</th>
+      <th>workclass</th>
+      <th>education</th>
+      <th>education-num</th>
+      <th>marital-status</th>
+      <th>occupation</th>
+      <th>relationship</th>
+      <th>ethnicity</th>
+      <th>gender</th>
+      <th>capital-gain</th>
+      <th>capital-loss</th>
+      <th>hours-per-week</th>
+      <th>native-country</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>0</th>
+      <td>-1.288936</td>
+      <td>4</td>
+      <td>11</td>
+      <td>-0.420053</td>
+      <td>4</td>
+      <td>12</td>
+      <td>3</td>
+      <td>4</td>
+      <td>0</td>
+      <td>-0.145918</td>
+      <td>-0.216656</td>
+      <td>-0.440371</td>
+      <td>39</td>
+    </tr>
+    <tr>
+      <th>1</th>
+      <td>-1.288936</td>
+      <td>4</td>
+      <td>15</td>
+      <td>-0.031359</td>
+      <td>4</td>
+      <td>8</td>
+      <td>3</td>
+      <td>4</td>
+      <td>0</td>
+      <td>-0.145918</td>
+      <td>-0.216656</td>
+      <td>-0.035429</td>
+      <td>39</td>
+    </tr>
+    <tr>
+      <th>2</th>
+      <td>-1.288936</td>
+      <td>4</td>
+      <td>15</td>
+      <td>-0.031359</td>
+      <td>4</td>
+      <td>12</td>
+      <td>3</td>
+      <td>4</td>
+      <td>0</td>
+      <td>-0.145918</td>
+      <td>-0.216656</td>
+      <td>1.179399</td>
+      <td>39</td>
+    </tr>
+    <tr>
+      <th>3</th>
+      <td>1.643522</td>
+      <td>4</td>
+      <td>15</td>
+      <td>-0.031359</td>
+      <td>2</td>
+      <td>10</td>
+      <td>0</td>
+      <td>4</td>
+      <td>1</td>
+      <td>-0.145918</td>
+      <td>-0.216656</td>
+      <td>0.126548</td>
+      <td>39</td>
+    </tr>
+    <tr>
+      <th>4</th>
+      <td>-1.288936</td>
+      <td>4</td>
+      <td>15</td>
+      <td>-0.031359</td>
+      <td>4</td>
+      <td>8</td>
+      <td>1</td>
+      <td>4</td>
+      <td>0</td>
+      <td>-0.145918</td>
+      <td>-0.216656</td>
+      <td>-0.035429</td>
+      <td>39</td>
+    </tr>
+  </tbody>
 </table>
+</div>
 
 
-# Summarised version in markdown format
-In this next section below you can find the sumarised version of [Jupyter notebook]() / [presentation slides]() in Markdown format.
 
-## Contents
-This section below contains the code blocks that summarise the 3 steps proposed in the presentation proposed for explainability: 1) Data analysis, 2) Model evaluation and 3) Production monitoring.
+
+```python
+score = model.evaluate(f_in(X_prod), y_prod, verbose=1)
+probabilities = model.predict(f_in(X_prod))
+pred = f_out(probabilities)
+print("Accuracy %.4f: " % (score[1]*100))
+```
+
+    110/110 [==============================] - 0s 73us/step
+    Accuracy 54.5455: 
+
+
+
+```python
+xai.confusion_matrix_plot(y_prod, pred)
+```
+
+
+![png](Bias%20Evaluation%20%26%20Explainability_files/Bias%20Evaluation%20%26%20Explainability_18_0.png)
+
+
+
+```python
+xai.roc_plot(y_prod, pred) 
+```
+
+
+![png](Bias%20Evaluation%20%26%20Explainability_files/Bias%20Evaluation%20%26%20Explainability_19_0.png)
+
+
+
+
+
+    ([array([0., 1.]), array([0., 1.])], [array([0., 1.]), array([0., 1.])])
+
+
+
+
+```python
+fig, ax = plt.subplots(1,2)
+a = sn.countplot(y_valid, ax=ax[0]); a.set_title("TRAINING DATA"); a.set_xticklabels(["Rejected", "Approved"])
+a = sn.countplot(y_prod, ax=ax[1]); a.set_title("PRODUCTION"); a.set_xticklabels(["Rejected", "Approved"])
+```
+
+
+
+
+[Text(0, 0, 'Rejected'), Text(0, 0, 'Approved')]
+
+
+
+
+![png](Bias%20Evaluation%20%26%20Explainability_files/Bias%20Evaluation%20%26%20Explainability_20_1.png)
+
+
+# Undesired bias and explainability
+
+<br>
+
+* Has become popular due to several high profile incidents:
+
+    * Amazon's "sexist" recruitment tool
+    * Microsoft's "racist" chatbot
+    * Negative discrimination in automated sentencing
+    * Black box models with complex patterns that can't be interpretable
+
+<br>
+<br>
+
+## Organisations cannot take on unknown risks
+
+<br><br><br>
+
+<hr>
+
+<br><br><br>
+
+# This challenge goes beyond the algorithms
+
+<br>
+
+### A large ethical decision should not just fall on the shoulders of a single data scientist
+
+<br>
+
+<img src="images/chart.png" style="height:30vw;margin-left: 10vw; float: left; background-color: transparent">
+<img src="images/chart-more.png" style="height:30vw; margin-left: 10vw; float: left;  background-color: transparent">
+
+<br><br><br>
+
+<hr>
+
+<br><br><br>
+
+# The answer is not just about "removing bias"
+
+<br>
+<br>
+
+* Any non trivial decision (i.e. more than 1 option) holds a bias, without exceptions.
+* It's impossible to "just remove bias", as the whole purpose of ML is to discriminate towards the right answer
+* Societal bias carries an inherent bias - what may be "racist" for one person, may not be for another group or geography
+
+<br>
+<br>
+
+## Let's see what "undesired bias" looks like
+
+<br><br><br>
+
+<hr>
+
+<br><br><br>
+
+# Split into two conceptual pieces
+
+<br>
+<br>
+
+## 1) Statistical bias 
+
+##### The "error" between from where you are to where you CAN be.
+
+<br>
+<br>
+
+## 2) A-priori bias 
+
+##### The "error" between where you CAN be to where you SHOULD be.
+
+# Statistical bias: Errors in project decisions
+
+<br>
+
+## Sub-optimal choices of accuracy metrics / cost functions
+
+<br>
+
+## Sub-optimal machine learning models chosen for the task 
+
+<br>
+
+## Lack of infrastructure or metrics required to monitor model performance in production
+
+<br>
+
+## Lack of human-in-the-loop where necessary
+
+<br>
+
+## Not using resources at disposal (e.g. domain experts, tools, etc).
+
+<br><br><br>
+
+<hr>
+
+<br><br><br>
+
+# A-priori bias: Bias introduced through societal or scope diversions
+
+<br>
+
+## Sub-optimal business objectives
+
+<br>
+
+## Lack of understanding of the project 
+
+<br>
+
+## Incomplete resources (data, time, domain experts, etc)
+
+<br>
+
+## Incorrectly labelled data (accident vs otherwise)
+
+<br>
+
+## Lack of relevant skillset
+
+<br>
+
+## Societal shifts in perception
+
+<br><br><br>
+
+<hr>
+
+<br><br><br>
+
+# Explainability is key
+
+<br>
+<br>
+
+* To identify and evaluate undersired biases
+
+<br>
+
+* For definitions of regulatory demands (GDPR)
+
+<br>
+
+* For compliance of processes
+
+<br>
+
+* To identify and reduce risks (FP vs FN)
+
+# Key Point: Explainability !== Interpretability
+
+<br>
+
+*  Having a model that can be interpreted doesn't mean it can be explained
+
+<br>
+
+* Explainability requires us to go beyond the algorithms
+
+<br>
+
+* Undesired bias cannot be tackled without explainability
+
+
+<br><br><br>
+
+<hr>
+
+<br><br><br>
+
+# Remember our workflow? Let's add three new steps:
+
+<br>
+
+<img src="images/mlall.png" style="width=100vw">
+
+# Augmenting the data science workflow
+
+<br>
+
+<img src="images/gml.png" style="width=100vw">
+
+
+<br><br><br>
+
+<hr>
+
+<br><br><br>
+
+# The Explainability Tradeoff
+
+<br>
+
+## Introducing fail-safe mechanisms, removing features, and using simpler models may have an impact on accuracy
+
+<br>
+
+## Not all usecases demand the same level of scrutiny
+
+<br>
+
+## The ones that are more critical do require a more strict process
+
+<br>
+
+## Similar to enterprise software, the overhead to offer accountability and governance is introduced
+
+
+<br><br><br>
+
+<hr>
+
+<br><br><br>
+
 
 # 1) Data Analysis
+
+<br><br><br>
+
+<hr>
+
+<br><br><br>
 
 #### Points to cover
 
@@ -70,7 +845,9 @@ This section below contains the code blocks that summarise the 3 steps proposed 
 
 # XAI - eXplainable AI 
 
-We'll be using the XAI library which is a set of tools to explain machine learning data
+<br>
+
+## A set of tools to explain machine learning data
 
 <br>
 
@@ -253,6 +1030,11 @@ im = xai.imbalance_plot(df_display, "gender", "loan" , categorical_cols=["loan",
 im = xai.imbalance_plot(df_display, "age" , bins=10)
 ```
 
+    WARNING:root:No categorical_cols passed so inferred using np.object, np.int8 and np.bool: Index(['workclass', 'education', 'marital-status', 'occupation',
+           'relationship', 'ethnicity', 'gender', 'native-country', 'loan'],
+          dtype='object'). If you see an error these are not correct, please provide them as a string array as: categorical_cols=['col1', 'col2', ...]
+
+
 
 ![png](Bias%20Evaluation%20%26%20Explainability_files/Bias%20Evaluation%20%26%20Explainability_42_1.png)
 
@@ -276,6 +1058,9 @@ im = xai.balance(df_display, "ethnicity", "loan", categorical_cols=["ethnicity",
 ```python
 corr = xai.correlations(df_display, include_categorical=True)
 ```
+
+    /home/alejandro/miniconda3/envs/reddit-classification/lib/python3.7/site-packages/scipy/stats/stats.py:245: RuntimeWarning: The input array could not be properly checked for nan values. nan values will be ignored.
+      "values. nan values will be ignored.", RuntimeWarning)
 
 
 
@@ -426,6 +1211,12 @@ im = xai.metrics_plot(y_valid, pred, df=X_valid, cross_cols=["gender"], categori
 imp = xai.feature_importance(X_valid, y_valid, lambda x, y: model.evaluate(f_in(x), y, verbose=0)[1], repeat=1)
 ```
 
+    /home/alejandro/miniconda3/envs/reddit-classification/lib/python3.7/site-packages/xai/__init__.py:1127: SettingWithCopyWarning: 
+    A value is trying to be set on a copy of a slice from a DataFrame.
+    Try using .loc[row_indexer,col_indexer] = value instead
+    
+    See the caveats in the documentation: http://pandas.pydata.org/pandas-docs/stable/indexing.html#indexing-view-versus-copy
+      x[c] = tmp
 
 
 
@@ -1044,8 +1835,6 @@ curl -X POST -H 'Content-Type: application/json' \
 ## Alejandro Saucedo
 <br>
 Chief Scientist, The Institute for Ethical AI & Machine Learning
-Director of ML Engineering, Seldon Technologie
-Director of ML Engineering, Seldon Technologiess
 
 <br>
 <br>
@@ -1058,5 +1847,4 @@ Director of ML Engineering, Seldon Technologiess
 <hr>
 
 <br><br><br>
-
 
