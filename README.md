@@ -7,7 +7,14 @@
 
 # A practical guide towards explainability and bias evaluation in machine learning
 
-This repo contains the full Jupyter Notebook and code for the Python talk on machine learning explainabilty and algorithmic bias using the <a href="https://github.com/EthicalML/XAI">eXplainable AI (XAI) Python library</a>.
+This repo contains the full Jupyter Notebook and code for the Python talk on machine learning explainabilty and algorithmic bias. This example uses the following open source libraries:
+* <a href="https://github.com/EthicalML/XAI">XAI</a> - We use XAI to showcase data analysis techniques 
+* <a href="https://github.com/SeldonIO/Alibi">Alibi</a> - We use Alibi to dive into black box model evaluation techniques 
+* <a href="https://github.com/SeldonIO/Seldon-core">Seldon Core</a> - We use seldon core to deploy and serve ML models and ML explainers
+
+You can find the presentation in the following formats:
+* [Online slides (Reveal.JS) format](https://ethicalml.github.io/explainability-and-bias/#/)
+* [Jupyter notebook to follow code examples](https://github.com/EthicalML/explainability-and-bias/blob/master/Bias%20Evaluation%20%26%20Explainability.ipynb) (If it doesn't load it may be due to size)
 
 ## YouTube Video of Talk
 
@@ -30,23 +37,9 @@ This repo contains the full Jupyter Notebook and code for the Python talk on mac
          The presentation was performed using the <a href="https://github.com/damianavila/RISE">RISE plugin</a> to convert the Jupyter notebook into a reveal.js presentation. The reveal.js presentation is hosted live in this repo under the <a href="https://ethicalml.github.io/explainability-and-bias/#/1">index.html</a> page.
     </td>
     <td width="70%">
-        <a href="https://ethicalml.github.io/explainability-and-bias/#/1"><img src="images/slide.png"></a>
+        <a href="https://ethicalml.github.io/explainability-and-bias/#/1"><img src="images/cover.jpg"></a>
     </td>
   </tr>
 </table>
-
-## eXplainable AI (XAI) Framework
-
-<table>
-  <tr>
-    <td width="30%">
-         The library used in the talk is the <a href="https://github.com/EthicalML/XAI">XAI (eXplainableAI)</a> library maintained by The Institute for Ethical AI & Machine Learning.
-    </td>
-    <td width="70%">
-        <a href="https://github.com/EthicalML/XAI"><img src="images/xai.png"></a>
-    </td>
-  </tr>
-</table>
-
 
 
