@@ -1,5 +1,5 @@
 scikit-learn==0.20.1
-alibi==0.2.0
+alibi==0.3.0
 dill==0.2.9
 scikit-image==0.15.0
 scikit-learn==0.20.1

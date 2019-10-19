@@ -1,4 +1,363 @@
 
+
+```python
+import numpy as np
+import sklearn
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report, mean_squared_error, roc_curve, auc
+import seaborn as sn
+import matplotlib.pyplot as plt
+import pandas as pd
+import shap
+from keras.layers import Input, Dense, Flatten, \
+    Concatenate, concatenate, Dropout, Lambda
+from keras.models import Model, Sequential
+from keras.layers.embeddings import Embedding
+import keras
+from livelossplot import PlotLossesKeras
+import eli5
+from eli5.sklearn import PermutationImportance
+import scipy
+from scipy.cluster import hierarchy as hc
+from lime.lime_tabular import LimeTabularExplainer
+import math
+import xai
+import alibi
+
+params = {
+          "ytick.color" : "w",
+          "xtick.color" : "w",
+          "text.color": "white",
+          'figure.facecolor': "#384151",
+          'legend.facecolor': "#384151",
+          "axes.labelcolor" : "w",
+          "axes.edgecolor" : "w",
+          'font.size': '20.0',
+          'figure.figsize': [20, 7],
+    }
+
+plt.rcParams.update(params)
+
+
+shap.initjs()
+  
+
+label_column = "loan"
+csv_path = 'data/adult.data'
+csv_columns = ["age", "workclass", "fnlwgt", "education", "education-num", "marital-status",
+                   "occupation", "relationship", "ethnicity", "gender", "capital-gain", "capital-loss",
+                   "hours-per-week", "native-country", "loan"]
+input_columns = ["age", "workclass", "education", "education-num", "marital-status",
+                   "occupation", "relationship", "ethnicity", "gender", "capital-gain", "capital-loss",
+                   "hours-per-week", "native-country"]
+categorical_features = ["workclass", "education", "marital-status",
+                       "occupation", "relationship", "ethnicity", "gender",
+                       "native-country"]
+
+def prepare_data(df):
+    
+    if "fnlwgt" in df: del df["fnlwgt"]
+    
+    tmp_df = df.copy()
+
+    # normalize data (this is important for model convergence)
+    dtypes = list(zip(tmp_df.dtypes.index, map(str, tmp_df.dtypes)))
+    for k,dtype in dtypes:
+        if dtype == "int64":
+            tmp_df[k] = tmp_df[k].astype(np.float32)
+            tmp_df[k] -= tmp_df[k].mean()
+            tmp_df[k] /= tmp_df[k].std()
+
+    cat_columns = tmp_df.select_dtypes(['object']).columns
+    tmp_df[cat_columns] = tmp_df[cat_columns].astype('category')
+    tmp_df[cat_columns] = tmp_df[cat_columns].apply(lambda x: x.cat.codes)
+    tmp_df[cat_columns] = tmp_df[cat_columns].astype('int8')
+    
+    return tmp_df
+
+def get_dataset_1():
+    tmp_df = df.copy()
+    tmp_df = tmp_df.groupby('loan') \
+                .apply(lambda x: x.sample(100) if x["loan"].iloc[0] else x.sample(7_900)) \
+                .reset_index(drop=True)
+    
+    X = tmp_df.drop(label_column, axis=1).copy()
+    y = tmp_df[label_column].astype(int).values.copy()
+    
+    return tmp_df, df_display.copy()
+
+def get_production_dataset():
+    tmp_df = df.copy()
+    tmp_df = tmp_df.groupby('loan') \
+                .apply(lambda x: x.sample(50) if x["loan"].iloc[0] else x.sample(60)) \
+                .reset_index(drop=True)
+    
+    X = tmp_df.drop(label_column, axis=1).copy()
+    y = tmp_df[label_column].astype(int).values.copy()
+    
+    return X, y
+
+
+def get_dataset_2():
+    tmp_df = df.copy()
+    tmp_df_display = df_display.copy()
+#     tmp_df_display[label_column] = tmp_df_display[label_column].astype(int).values
+    
+    X = tmp_df.drop(label_column, axis=1).copy()
+    y = tmp_df[label_column].astype(int).values.copy()
+    
+    X_display = tmp_df_display.drop(label_column, axis=1).copy()
+    y_display = tmp_df_display[label_column].astype(int).values.copy()
+    
+    X_train, X_valid, y_train, y_valid = \
+        train_test_split(X, y, test_size=0.2, random_state=7)
+
+    return X, y, X_train, X_valid, y_train, y_valid, X_display, y_display, tmp_df, tmp_df_display
+    
+df_display = pd.read_csv(csv_path, names=csv_columns)
+df_display[label_column] = df_display[label_column].apply(lambda x: ">50K" in x)
+df = prepare_data(df_display)
+
+def build_model(X):
+    input_els = []
+    encoded_els = []
+    dtypes = list(zip(X.dtypes.index, map(str, X.dtypes)))
+    for k,dtype in dtypes:
+        input_els.append(Input(shape=(1,)))
+        if dtype == "int8":
+            e = Flatten()(Embedding(df[k].max()+1, 1)(input_els[-1]))
+        else:
+            e = input_els[-1]
+        encoded_els.append(e)
+    encoded_els = concatenate(encoded_els)
+
+    layer1 = Dropout(0.5)(Dense(100, activation="relu")(encoded_els))
+    out = Dense(1, activation='sigmoid')(layer1)
+
+    # train model
+    model = Model(inputs=input_els, outputs=[out])
+    model.compile(optimizer="adam", loss='binary_crossentropy', metrics=['accuracy'])
+    return model
+
+def f_in(X, m=None):
+    """Preprocess input so it can be provided to a function"""
+    if m:
+        return [X.iloc[:m,i] for i in range(X.shape[1])]
+    else:
+        return [X.iloc[:,i] for i in range(X.shape[1])]
+
+def f_out(probs):
+    """Convert probabilities into classes"""
+    return list((probs >= 0.5).astype(int).T[0])
+
+def plot_roc(y, probs):
+    
+    fpr, tpr, _ = roc_curve(y, probs)
+
+    roc_auc = auc(fpr, tpr)
+    print(roc_auc)
+
+    plt.figure()
+    plt.plot(fpr, tpr, label='ROC curve (area = %0.2f)' % roc_auc)
+    plt.plot([0, 1], [0, 1], 'k--')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('ROC curve (area = %0.2f)' % roc_auc)
+    plt.legend(loc="lower right")
+    plt.rcParams.update(params)
+    plt.show()
+    
+def plot_learning_curves(model, X, y):
+    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2)
+    train_errors, val_errors = [], []
+    for m in list(np.logspace(0.6,4,dtype='int')):
+        if m >= len(X_train): break
+        model.fit(f_in(X_train,m), y_train[:m], epochs=50, batch_size=512, verbose=0)
+        y_train_predict = model.predict(f_in(X_train,m))
+        y_val_predict = model.predict(f_in(X_val))
+        y_train_predict = f_out(y_train_predict)
+        y_val_predict = f_out(y_val_predict)
+        train_errors.append(mean_squared_error(y_train[:m], y_train_predict))
+        val_errors.append(mean_squared_error(y_val, y_val_predict))
+    plt.plot(np.sqrt(train_errors), "r-+", linewidth=2, label="train")
+    plt.plot(np.sqrt(val_errors), "b-", linewidth=3, label="val")
+    
+def keras_score(self, X, y, **kwargs):
+    """ Scorer class for eli5 library on feature importance"""
+    input_test = [X[:,i] for i in range(X.shape[1])]
+    loss = self.evaluate(input_test, y)
+    if type(loss) is list:
+        # The first one is the error, the rest are metrics
+        return -loss[0]
+    return -loss
+
+class ModelWrapper():
+    """ Keras model wrapper to override the predict function"""
+    def __init__(self, model):
+        self.model = model
+    
+    def predict(self, X, **kwargs):
+        return self.model.predict([X.iloc[:,i] for i in range(X.shape[1])])
+
+def plot_all_features(X, plot_numeric=True, hist=True, dropna=False):
+    fig = plt.figure(figsize=(20,15))
+    cols = 5
+    rows = math.ceil(float(X.shape[1]) / cols)
+    for i, column in enumerate(X.columns):
+        ax = fig.add_subplot(rows, cols, i + 1)
+        ax.set_title(column)
+        if X.dtypes[column] == np.object:
+            X[column].value_counts().plot(kind="bar", axes=ax)
+        elif plot_numeric:
+            if hist:
+                X[column].hist(axes=ax)
+                plt.xticks(rotation="vertical")
+            else:
+                if dropna:
+                    X[column].dropna().plot()
+                else:
+                    X[column].plot()
+                    
+    plt.subplots_adjust(hspace=0.7, wspace=0.2)
+    
+def plot_dendogram(corr, X):
+    corr_condensed = hc.distance.squareform(1-corr)
+    z = hc.linkage(corr_condensed, method="average")
+    fig = plt.figure(figsize=(16,5))
+    dendrogram = hc.dendrogram(
+        z, labels=X.columns, orientation="left", leaf_font_size=16)
+    plt.show()
+    
+def shap_predict(X):
+    values = model.predict([X[:,i] for i in range(X.shape[1])]).flatten()
+    return values
+
+def lime_predict_proba(X):
+    values = model.predict([X[:,i] for i in range(X.shape[1])]).flatten()
+    prob_pairs = np.array([1-values, values]).T
+    return prob_pairs    
+
+
+import alibi
+import numpy as np
+from sklearn.preprocessing import LabelEncoder, StandardScaler, OneHotEncoder
+from sklearn.impute import SimpleImputer
+from sklearn.pipeline import Pipeline
+from sklearn.compose import ColumnTransformer
+from sklearn.ensemble import RandomForestClassifier
+
+alibi_data, alibi_labels, alibi_feature_names, alibi_category_map = alibi.datasets.adult()
+
+def get_alibi_data():
+    
+    # define train and test set
+    np.random.seed(0)
+    data_perm = np.random.permutation(np.c_[alibi_data, alibi_labels])
+    data = data_perm[:, :-1]
+    labels = data_perm[:, -1]
+
+    idx = 30000
+    X_train, y_train = data[:idx, :], labels[:idx]
+    X_test, y_test = data[idx + 1:, :], labels[idx + 1:]
+
+    # feature transformation pipeline
+    ordinal_features = [x for x in range(len(alibi_feature_names)) if x not in list(alibi_category_map.keys())]
+    ordinal_transformer = Pipeline(steps=[('imputer', SimpleImputer(strategy='median')),
+                                          ('scaler', StandardScaler())])
+
+    categorical_features = list(alibi_category_map.keys())
+    categorical_transformer = Pipeline(steps=[('imputer', SimpleImputer(strategy='median')),
+                                              ('onehot', OneHotEncoder(handle_unknown='ignore'))])
+
+    preprocessor = ColumnTransformer(transformers=[('num', ordinal_transformer, ordinal_features),
+                                                   ('cat', categorical_transformer, categorical_features)])
+
+
+    np.random.seed(0)
+    clf = RandomForestClassifier(n_estimators=50)
+
+    alibi_loan_model = Pipeline(steps=[
+        ('preprocessor', preprocessor),
+        ('clf', clf)])
+
+    alibi_loan_model.fit(X_train, y_train)
+    
+    return X_train, X_test, y_train, y_test, \
+        alibi_category_map, alibi_feature_names, alibi_loan_model
+
+X_train_alibi, X_test_alibi, y_train_alibi, y_test_alibi, \
+    category_map_alibi, feature_names_alibi, loan_model_alibi = get_alibi_data()
+
+
+import tensorflow as tf
+tf.logging.set_verbosity(tf.logging.ERROR)  # suppress deprecation messages
+from tensorflow.keras.models import load_model
+from tensorflow.keras.utils import to_categorical
+
+from alibi.explainers import CounterFactual
+
+# def cnn_model():
+#     from tensorflow.keras import backend as K
+#     from tensorflow.keras.layers import Conv2D, Dense, Dropout, Flatten, MaxPooling2D, Input, UpSampling2D
+#     from tensorflow.keras.models import Model
+#     x_in = Input(shape=(28, 28, 1))
+#     x = Conv2D(filters=64, kernel_size=2, padding='same', activation='relu')(x_in)
+#     x = MaxPooling2D(pool_size=2)(x)
+#     x = Dropout(0.3)(x)
+#     x = Conv2D(filters=32, kernel_size=2, padding='same', activation='relu')(x)
+#     x = MaxPooling2D(pool_size=2)(x)
+#     x = Dropout(0.3)(x)
+#     x = Flatten()(x)
+#     x = Dense(256, activation='relu')(x)
+#     x = Dropout(0.5)(x)
+#     x_out = Dense(10, activation='softmax')(x)
+#     cnn = Model(inputs=x_in, outputs=x_out)
+#     cnn.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+#     return cnn
+
+# cnn = cnn_model()
+# cnn.summary()
+# cnn.fit(x_train, y_train, batch_size=64, epochs=3, verbose=0)
+# cnn.save('mnist_cnn.h5')
+
+def show_iterations(explanation, max_lam_steps=10):
+    n_cfs = np.array([len(explanation['all'][iter_cf]) for iter_cf in range(max_lam_steps)])
+    examples = {}
+    for ix, n in enumerate(n_cfs):
+        if n>0:
+            examples[ix] = {'ix': ix, 'lambda': explanation['all'][ix][0]['lambda'],
+                           'X': explanation['all'][ix][0]['X']}
+    columns = len(examples) + 1
+    rows = 1
+
+    fig = plt.figure(figsize=(16,6))
+
+    for i, key in enumerate(examples.keys()):
+        ax = plt.subplot(rows, columns, i+1)
+        ax.get_xaxis().set_visible(False)
+        ax.get_yaxis().set_visible(False)
+        plt.imshow(examples[key]['X'].reshape(28,28))
+        plt.title(f'Iter {key}')
+
+(cf_x_train, cf_y_train), (cf_x_test, cf_y_test) = tf.keras.datasets.mnist.load_data()
+print('x_train shape:', cf_x_train.shape, 'y_train shape:', cf_y_train.shape)
+plt.gray()
+
+cf_x_train = cf_x_train.astype('float32') / 255
+cf_x_test = cf_x_test.astype('float32') / 255
+cf_x_train = np.reshape(cf_x_train, cf_x_train.shape + (1,))
+cf_x_test = np.reshape(cf_x_test, cf_x_test.shape + (1,))
+cf_y_train = to_categorical(cf_y_train)
+cf_y_test = to_categorical(cf_y_test)
+
+cf_xmin, cf_xmax = -.5, .5
+cf_x_train = ((cf_x_train - cf_x_train.min()) / (cf_x_train.max() - cf_x_train.min())) * (cf_xmax - cf_xmin) + cf_xmin
+cf_x_test = ((cf_x_test - cf_x_test.min()) / (cf_x_test.max() - cf_x_test.min())) * (cf_xmax - cf_xmin) + cf_xmin
+        
+```
+
 # A practical guide towards explainability
 # and bias evaluation in machine learning
 
@@ -22,6 +381,10 @@ Chief Scientist, The Institute for Ethical AI & Machine Learning
 Director of ML Engineering, Seldon Technologies
 
 <br>
+<br>
+<h3>Twitter: AxSaucedo</h3>
+<br>
+<h3>Slides: github.com/EthicalML/explainability-and-bias</h3>
 
 <br><br><br>
 
@@ -54,7 +417,7 @@ Director of ML Engineering, Seldon Technologies
 <br>
 <br>
 
-## 4) Production Monitoring
+## 5) Production Monitoring
 
 <br>
 
@@ -142,7 +505,6 @@ The team pushed back, and after a while they finally got a dataset with ~8000 ro
 df_data, df_display = get_dataset_1()
 
 df_display.head()
-
 ```
 
 
@@ -184,7 +546,7 @@ df_display.head()
   </thead>
   <tbody>
     <tr>
-      <th>0</th>
+      <td>0</td>
       <td>39</td>
       <td>State-gov</td>
       <td>Bachelors</td>
@@ -201,7 +563,7 @@ df_display.head()
       <td>False</td>
     </tr>
     <tr>
-      <th>1</th>
+      <td>1</td>
       <td>50</td>
       <td>Self-emp-not-inc</td>
       <td>Bachelors</td>
@@ -218,7 +580,7 @@ df_display.head()
       <td>False</td>
     </tr>
     <tr>
-      <th>2</th>
+      <td>2</td>
       <td>38</td>
       <td>Private</td>
       <td>HS-grad</td>
@@ -235,7 +597,7 @@ df_display.head()
       <td>False</td>
     </tr>
     <tr>
-      <th>3</th>
+      <td>3</td>
       <td>53</td>
       <td>Private</td>
       <td>11th</td>
@@ -252,7 +614,7 @@ df_display.head()
       <td>False</td>
     </tr>
     <tr>
-      <th>4</th>
+      <td>4</td>
       <td>28</td>
       <td>Private</td>
       <td>Bachelors</td>
@@ -306,18 +668,18 @@ model.fit(f_in(X_train), y_train, epochs=10,
 
 
     Log-loss (cost function):
-    training   (min:    0.081, max:    0.728, cur:    0.081)
-    validation (min:    0.071, max:    0.642, cur:    0.071)
+    training   (min:    0.068, max:    0.553, cur:    0.068)
+    validation (min:    0.062, max:    0.466, cur:    0.062)
     
     Accuracy:
-    training   (min:    0.408, max:    0.988, cur:    0.988)
-    validation (min:    0.772, max:    0.988, cur:    0.988)
+    training   (min:    0.888, max:    0.988, cur:    0.988)
+    validation (min:    0.987, max:    0.987, cur:    0.987)
 
 
 
 
 
-    <keras.callbacks.History at 0x7f2897415b70>
+    <keras.callbacks.History at 0x7fae564f3898>
 
 
 
@@ -328,9 +690,9 @@ print("Error %.4f: " % score[0])
 print("Accuracy %.4f: " % (score[1]*100))
 ```
 
-    1600/1600 [==============================] - 0s 41us/step
-    Error 0.0707: 
-    Accuracy 98.7500: 
+    1600/1600 [==============================] - 0s 47us/step
+    Error 0.0623: 
+    Accuracy 98.6875: 
 
 
 # Accuracy is ~98%!
@@ -463,83 +825,83 @@ X_prod.head()
   </thead>
   <tbody>
     <tr>
-      <th>0</th>
-      <td>-1.288936</td>
-      <td>4</td>
-      <td>11</td>
-      <td>-0.420053</td>
-      <td>4</td>
-      <td>12</td>
-      <td>3</td>
-      <td>4</td>
       <td>0</td>
-      <td>-0.145918</td>
-      <td>-0.216656</td>
-      <td>-0.440371</td>
-      <td>39</td>
-    </tr>
-    <tr>
-      <th>1</th>
-      <td>-1.288936</td>
-      <td>4</td>
-      <td>15</td>
-      <td>-0.031359</td>
-      <td>4</td>
-      <td>8</td>
-      <td>3</td>
-      <td>4</td>
-      <td>0</td>
-      <td>-0.145918</td>
-      <td>-0.216656</td>
-      <td>-0.035429</td>
-      <td>39</td>
-    </tr>
-    <tr>
-      <th>2</th>
-      <td>-1.288936</td>
-      <td>4</td>
-      <td>15</td>
-      <td>-0.031359</td>
-      <td>4</td>
-      <td>12</td>
-      <td>3</td>
-      <td>4</td>
-      <td>0</td>
-      <td>-0.145918</td>
-      <td>-0.216656</td>
-      <td>1.179399</td>
-      <td>39</td>
-    </tr>
-    <tr>
-      <th>3</th>
-      <td>1.643522</td>
+      <td>0.177293</td>
       <td>4</td>
       <td>15</td>
       <td>-0.031359</td>
       <td>2</td>
-      <td>10</td>
+      <td>1</td>
       <td>0</td>
       <td>4</td>
       <td>1</td>
-      <td>-0.145918</td>
+      <td>0.237140</td>
       <td>-0.216656</td>
-      <td>0.126548</td>
+      <td>-0.035429</td>
       <td>39</td>
     </tr>
     <tr>
-      <th>4</th>
-      <td>-1.288936</td>
+      <td>1</td>
+      <td>-0.555822</td>
       <td>4</td>
-      <td>15</td>
-      <td>-0.031359</td>
+      <td>9</td>
+      <td>1.134722</td>
+      <td>4</td>
+      <td>12</td>
+      <td>1</td>
+      <td>2</td>
+      <td>0</td>
+      <td>-0.145918</td>
+      <td>-0.216656</td>
+      <td>0.774456</td>
+      <td>39</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>-1.142313</td>
       <td>4</td>
       <td>8</td>
-      <td>1</td>
+      <td>0.357334</td>
       <td>4</td>
+      <td>3</td>
+      <td>4</td>
+      <td>2</td>
       <td>0</td>
       <td>-0.145918</td>
       <td>-0.216656</td>
       <td>-0.035429</td>
+      <td>39</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>0.397227</td>
+      <td>4</td>
+      <td>12</td>
+      <td>1.523415</td>
+      <td>5</td>
+      <td>12</td>
+      <td>4</td>
+      <td>4</td>
+      <td>0</td>
+      <td>-0.145918</td>
+      <td>-0.216656</td>
+      <td>0.612479</td>
+      <td>39</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td>-1.069002</td>
+      <td>4</td>
+      <td>15</td>
+      <td>-0.031359</td>
+      <td>4</td>
+      <td>13</td>
+      <td>1</td>
+      <td>4</td>
+      <td>0</td>
+      <td>-0.145918</td>
+      <td>-0.216656</td>
+      <td>-1.979153</td>
       <td>39</td>
     </tr>
   </tbody>
@@ -550,14 +912,13 @@ X_prod.head()
 
 
 ```python
-score = model.evaluate(f_in(X_prod), y_prod, verbose=1)
 probabilities = model.predict(f_in(X_prod))
 pred = f_out(probabilities)
-print("Accuracy %.4f: " % (score[1]*100))
+_= xai.metrics_plot(pred, y_prod, exclude_metrics=["auc", "specificity", "f1"])
 ```
 
-    110/110 [==============================] - 0s 73us/step
-    Accuracy 54.5455: 
+
+![png](Bias%20Evaluation%20%26%20Explainability_files/Bias%20Evaluation%20%26%20Explainability_17_0.png)
 
 
 
@@ -567,22 +928,6 @@ xai.confusion_matrix_plot(y_prod, pred)
 
 
 ![png](Bias%20Evaluation%20%26%20Explainability_files/Bias%20Evaluation%20%26%20Explainability_18_0.png)
-
-
-
-```python
-xai.roc_plot(y_prod, pred) 
-```
-
-
-![png](Bias%20Evaluation%20%26%20Explainability_files/Bias%20Evaluation%20%26%20Explainability_19_0.png)
-
-
-
-
-
-    ([array([0., 1.]), array([0., 1.])], [array([0., 1.]), array([0., 1.])])
-
 
 
 
@@ -600,8 +945,23 @@ a = sn.countplot(y_prod, ax=ax[1]); a.set_title("PRODUCTION"); a.set_xticklabels
 
 
 
-![png](Bias%20Evaluation%20%26%20Explainability_files/Bias%20Evaluation%20%26%20Explainability_20_1.png)
+![png](Bias%20Evaluation%20%26%20Explainability_files/Bias%20Evaluation%20%26%20Explainability_19_1.png)
 
+
+# Undesired bias and explainability
+
+<br>
+
+<img src="https://i.imgflip.com/33o3on.gif" style="height: 50vh">
+
+<br>
+
+#### We have seen several examples where undesired biases have led to undesired results. In critical usecases, this may have impact of multiple generations.
+
+<br><br><br>
+
+
+<br><br><br>
 
 # Undesired bias and explainability
 
@@ -612,18 +972,14 @@ a = sn.countplot(y_prod, ax=ax[1]); a.set_title("PRODUCTION"); a.set_xticklabels
     * Amazon's "sexist" recruitment tool
     * Microsoft's "racist" chatbot
     * Negative discrimination in automated sentencing
-    * Black box models with complex patterns that can't be interpretable
+    * Black box models + complex patterns can't be interpretable
 
 <br>
 <br>
+
 
 ## Organisations cannot take on unknown risks
 
-<br><br><br>
-
-<hr>
-
-<br><br><br>
 
 # This challenge goes beyond the algorithms
 
@@ -638,145 +994,77 @@ a = sn.countplot(y_prod, ax=ax[1]); a.set_title("PRODUCTION"); a.set_xticklabels
 
 <br><br><br>
 
-<hr>
 
 <br><br><br>
 
-# The answer is not just about "removing bias"
+# Who's ethics?
+<br>
+
+### An analysis of eastern and western philosophy, in respect to AI Ethics
+
+<br>
+
+<div style="float: left; width: 50%">
+<img style="" src="images/philosophers.jpg">
+</div>
+
+<div style="float: left; width: 50%">
+<img src="images/whos-ethics.jpg">
+</div>
+
+# Stages where bias can appear
 
 <br>
 <br>
 
-* Any non trivial decision (i.e. more than 1 option) holds a bias, without exceptions.
-* It's impossible to "just remove bias", as the whole purpose of ML is to discriminate towards the right answer
+## 1) Statistical bias (During the project)
+
+##### Sub-optimal choices on decisions after project starts (models, metrics, human-in-the-loop, infrastructure design, etc)
+
+<br>
+<br>
+
+## 2) A-priori bias (Before the project)
+
+##### Limitations around the project that constrain the best possible outcome (limited time, budget, data, societal shifts in perception, etc)
+
+<br><br>
+
+# Not as easy as just "removing bias"
+
+<br>
+<br>
+
+* Any non trivial decision holds a bias, without exceptions - unless you build a classifier that only predicts "maybe".
+* It's impossible to "just remove bias" (as the whole purpose of ML is to discriminate towards the right answer)
 * Societal bias carries an inherent bias - what may be "racist" for one person, may not be for another group or geography
 
 <br>
 <br>
 
-## Let's see what "undesired bias" looks like
+#### Emphasis on last point: Societal bias is inherently biased
 
 <br><br><br>
 
-<hr>
+# What it's about: Mitigating undesired bias through process and explainability techniques
 
 <br><br><br>
 
-# Split into two conceptual pieces
-
-<br>
-<br>
-
-## 1) Statistical bias 
-
-##### The "error" between from where you are to where you CAN be.
-
-<br>
-<br>
-
-## 2) A-priori bias 
-
-##### The "error" between where you CAN be to where you SHOULD be.
-
-# Statistical bias: Errors in project decisions
-
-<br>
-
-## Sub-optimal choices of accuracy metrics / cost functions
-
-<br>
-
-## Sub-optimal machine learning models chosen for the task 
-
-<br>
-
-## Lack of infrastructure or metrics required to monitor model performance in production
-
-<br>
-
-## Lack of human-in-the-loop where necessary
-
-<br>
-
-## Not using resources at disposal (e.g. domain experts, tools, etc).
+* Like in cybersecurity, it's impossible to build a system that will never be hacked
+* But it's possible to build a system and introduce processes that ensure a reasonable level of security
+* Similarly we want to introduce processes that allow us to remove a reasonable level of undesired biases
+* This is going 0 to 1, trying to introduce a foundation for undesired bias
 
 <br><br><br>
 
-<hr>
 
-<br><br><br>
+# Principles, Standards & Regulation
 
-# A-priori bias: Bias introduced through societal or scope diversions
+### github.com/EthicalML/awesome-artificial-intelligence-guidelines
 
+<img src="images/guidelines.jpg">
 <br>
 
-## Sub-optimal business objectives
-
-<br>
-
-## Lack of understanding of the project 
-
-<br>
-
-## Incomplete resources (data, time, domain experts, etc)
-
-<br>
-
-## Incorrectly labelled data (accident vs otherwise)
-
-<br>
-
-## Lack of relevant skillset
-
-<br>
-
-## Societal shifts in perception
-
-<br><br><br>
-
-<hr>
-
-<br><br><br>
-
-# Explainability is key
-
-<br>
-<br>
-
-* To identify and evaluate undersired biases
-
-<br>
-
-* For definitions of regulatory demands (GDPR)
-
-<br>
-
-* For compliance of processes
-
-<br>
-
-* To identify and reduce risks (FP vs FN)
-
-# Key Point: Explainability !== Interpretability
-
-<br>
-
-*  Having a model that can be interpreted doesn't mean it can be explained
-
-<br>
-
-* Explainability requires us to go beyond the algorithms
-
-<br>
-
-* Undesired bias cannot be tackled without explainability
-
-
-<br><br><br>
-
-<hr>
-
-<br><br><br>
 
 # Remember our workflow? Let's add three new steps:
 
@@ -797,31 +1085,37 @@ a = sn.countplot(y_prod, ax=ax[1]); a.set_title("PRODUCTION"); a.set_xticklabels
 
 <br><br><br>
 
-# The Explainability Tradeoff
+## The explainability tradeoff
+
 
 <br>
 
-## Introducing fail-safe mechanisms, removing features, and using simpler models may have an impact on accuracy
+By making introducing processes that allow us to mitigate undesired bias and increase explainability, we face severall tradeoffs:
+
 
 <br>
 
-## Not all usecases demand the same level of scrutiny
+* More redtape introduced
 
 <br>
 
-## The ones that are more critical do require a more strict process
+* Potentially lower accuracy 
 
 <br>
 
-## Similar to enterprise software, the overhead to offer accountability and governance is introduced
+* Constrains on models that can be used
 
+<br>
 
-<br><br><br>
+* Increase in infrastructure complexity
 
-<hr>
+<br>
 
-<br><br><br>
+* Requirement of domain expert knowledge intersection
 
+<br>
+
+#### The amount of explainability and process is proportionate to the impact of the project (prototype vs prod)
 
 # 1) Data Analysis
 
@@ -830,18 +1124,6 @@ a = sn.countplot(y_prod, ax=ax[1]); a.set_title("PRODUCTION"); a.set_xticklabels
 <hr>
 
 <br><br><br>
-
-#### Points to cover
-
-1.1) Data imbalances
-
-1.2) Upsampling / downsampling
-
-1.3) Correlations
-
-1.4) Train / test set
-
-1.5) Further techniques
 
 # XAI - eXplainable AI 
 
@@ -910,7 +1192,7 @@ df_display.head()
   </thead>
   <tbody>
     <tr>
-      <th>0</th>
+      <td>0</td>
       <td>39</td>
       <td>State-gov</td>
       <td>Bachelors</td>
@@ -927,7 +1209,7 @@ df_display.head()
       <td>False</td>
     </tr>
     <tr>
-      <th>1</th>
+      <td>1</td>
       <td>50</td>
       <td>Self-emp-not-inc</td>
       <td>Bachelors</td>
@@ -944,7 +1226,7 @@ df_display.head()
       <td>False</td>
     </tr>
     <tr>
-      <th>2</th>
+      <td>2</td>
       <td>38</td>
       <td>Private</td>
       <td>HS-grad</td>
@@ -961,7 +1243,7 @@ df_display.head()
       <td>False</td>
     </tr>
     <tr>
-      <th>3</th>
+      <td>3</td>
       <td>53</td>
       <td>Private</td>
       <td>11th</td>
@@ -978,7 +1260,7 @@ df_display.head()
       <td>False</td>
     </tr>
     <tr>
-      <th>4</th>
+      <td>4</td>
       <td>28</td>
       <td>Private</td>
       <td>Bachelors</td>
@@ -1000,19 +1282,8 @@ df_display.head()
 
 
 
-## 1.1) Data imbalances
-#### We can visualise the imbalances by looking at the number of examples for each class
-
-
-```python
-im = xai.imbalance_plot(df_display, "gender", threshold=0.55, categorical_cols=["gender"])
-```
-
-
-![png](Bias%20Evaluation%20%26%20Explainability_files/Bias%20Evaluation%20%26%20Explainability_38_0.png)
-
-
-#### We can evaluate imbalances by the product of multiple categories
+## 1.1) Visualising complex data imbalances
+#### We may be able to identify an imbalance of examples for a specific class
 
 
 ```python
@@ -1020,54 +1291,23 @@ im = xai.imbalance_plot(df_display, "gender", "loan" , categorical_cols=["loan",
 ```
 
 
-![png](Bias%20Evaluation%20%26%20Explainability_files/Bias%20Evaluation%20%26%20Explainability_40_0.png)
+![png](Bias%20Evaluation%20%26%20Explainability_files/Bias%20Evaluation%20%26%20Explainability_36_0.png)
 
 
-#### For numeric datasets we can break it down in bins
-
-
-```python
-im = xai.imbalance_plot(df_display, "age" , bins=10)
-```
-
-    WARNING:root:No categorical_cols passed so inferred using np.object, np.int8 and np.bool: Index(['workclass', 'education', 'marital-status', 'occupation',
-           'relationship', 'ethnicity', 'gender', 'native-country', 'loan'],
-          dtype='object'). If you see an error these are not correct, please provide them as a string array as: categorical_cols=['col1', 'col2', ...]
-
-
-
-![png](Bias%20Evaluation%20%26%20Explainability_files/Bias%20Evaluation%20%26%20Explainability_42_1.png)
-
-
-## 1.2) Upsampling / Downsampling
+## 1.2) Upsampling / Downsampling of data imbalances
+#### We can re-balance the metrics for imbalanced datasets, but we need to understand what this actually means
 
 
 ```python
-im = xai.balance(df_display, "ethnicity", "loan", categorical_cols=["ethnicity", "loan"],
-                upsample=0.5, downsample=0.5, bins=5)
+im = xai.balance(df_display, "gender", "loan", categorical_cols=["gender", "loan"],
+                upsample=0.5, downsample=0.8)
 ```
 
 
-![png](Bias%20Evaluation%20%26%20Explainability_files/Bias%20Evaluation%20%26%20Explainability_44_0.png)
+![png](Bias%20Evaluation%20%26%20Explainability_files/Bias%20Evaluation%20%26%20Explainability_38_0.png)
 
 
-## 1.3 Correlations hidden in data
-#### We can identify potential correlations across variables through a dendogram visualiation
-
-
-```python
-corr = xai.correlations(df_display, include_categorical=True)
-```
-
-    /home/alejandro/miniconda3/envs/reddit-classification/lib/python3.7/site-packages/scipy/stats/stats.py:245: RuntimeWarning: The input array could not be properly checked for nan values. nan values will be ignored.
-      "values. nan values will be ignored.", RuntimeWarning)
-
-
-
-![png](Bias%20Evaluation%20%26%20Explainability_files/Bias%20Evaluation%20%26%20Explainability_46_1.png)
-
-
-## 1.4) Balanced train/testing sets
+## 1.2) Balanced testing / validation datasets
 
 
 ```python
@@ -1083,7 +1323,23 @@ im = xai.imbalance_plot(X_valid_balanced, "gender", "loan", categorical_cols=["g
 ```
 
 
-![png](Bias%20Evaluation%20%26%20Explainability_files/Bias%20Evaluation%20%26%20Explainability_48_0.png)
+![png](Bias%20Evaluation%20%26%20Explainability_files/Bias%20Evaluation%20%26%20Explainability_40_0.png)
+
+
+## 1.4 Correlations hidden in data
+#### We can identify potential correlations across variables through a dendogram visualiation
+
+
+```python
+corr = xai.correlations(df_display, include_categorical=True)
+```
+
+    /home/alejandro/miniconda3/envs/reddit-classification/lib/python3.7/site-packages/scipy/stats/stats.py:248: RuntimeWarning: The input array could not be properly checked for nan values. nan values will be ignored.
+      "values. nan values will be ignored.", RuntimeWarning)
+
+
+
+![png](Bias%20Evaluation%20%26%20Explainability_files/Bias%20Evaluation%20%26%20Explainability_42_1.png)
 
 
 ## 1.5 Shoutout to other tools and techniques
@@ -1097,16 +1353,6 @@ https://github.com/EthicalML/awesome-production-machine-learning#industrial-stre
 <hr>
 
 <br><br><br>
-
-#### Points to cover
-
-2.1) Standard model evaluation metrics
-
-2.2) Global model explanation techniques
-
-2.3) Black box local model explanation techniques
-
-2.4) Other libraries available
 
 # Alibi - Black Box Model Explanations
 
@@ -1135,95 +1381,8 @@ https://github.com/EthicalML/awesome-production-machine-learning#industrial-stre
 
 ![](images/globallocal.jpg)
 
-## 2.1) Standard model evaluation metrics
+# Local black box model evaluation metrics with Alibi
 
-
-```python
-# Let's start by building our model with our newly balanced dataset
-model = build_model(X)
-model.fit(f_in(X_train), y_train, epochs=20, batch_size=512, shuffle=True, validation_data=(f_in(X_valid), y_valid), callbacks=[PlotLossesKeras()], verbose=0, validation_split=0.05,)
-probabilities = model.predict(f_in(X_valid))
-pred = f_out(probabilities)
-```
-
-
-![png](Bias%20Evaluation%20%26%20Explainability_files/Bias%20Evaluation%20%26%20Explainability_56_0.png)
-
-
-    Log-loss (cost function):
-    training   (min:    0.311, max:    0.581, cur:    0.311)
-    validation (min:    0.312, max:    0.464, cur:    0.312)
-    
-    Accuracy:
-    training   (min:    0.724, max:    0.856, cur:    0.856)
-    validation (min:    0.808, max:    0.857, cur:    0.857)
-
-
-
-```python
-xai.confusion_matrix_plot(y_valid, pred)
-```
-
-
-![png](Bias%20Evaluation%20%26%20Explainability_files/Bias%20Evaluation%20%26%20Explainability_57_0.png)
-
-
-
-```python
-im = xai.roc_plot(y_valid, pred)
-```
-
-
-![png](Bias%20Evaluation%20%26%20Explainability_files/Bias%20Evaluation%20%26%20Explainability_58_0.png)
-
-
-
-```python
-im = xai.roc_plot(y_valid, pred, df=X_valid, cross_cols=["gender"], categorical_cols=["gender"])
-```
-
-
-![png](Bias%20Evaluation%20%26%20Explainability_files/Bias%20Evaluation%20%26%20Explainability_59_0.png)
-
-
-
-```python
-im = xai.metrics_plot(y_valid, pred)
-```
-
-
-![png](Bias%20Evaluation%20%26%20Explainability_files/Bias%20Evaluation%20%26%20Explainability_60_0.png)
-
-
-
-```python
-im = xai.metrics_plot(y_valid, pred, df=X_valid, cross_cols=["gender"], categorical_cols="gender")
-```
-
-
-![png](Bias%20Evaluation%20%26%20Explainability_files/Bias%20Evaluation%20%26%20Explainability_61_0.png)
-
-
-# 2.2) Global black box model evalutaion metrics
-
-
-```python
-imp = xai.feature_importance(X_valid, y_valid, lambda x, y: model.evaluate(f_in(x), y, verbose=0)[1], repeat=1)
-```
-
-    /home/alejandro/miniconda3/envs/reddit-classification/lib/python3.7/site-packages/xai/__init__.py:1127: SettingWithCopyWarning: 
-    A value is trying to be set on a copy of a slice from a DataFrame.
-    Try using .loc[row_indexer,col_indexer] = value instead
-    
-    See the caveats in the documentation: http://pandas.pydata.org/pandas-docs/stable/indexing.html#indexing-view-versus-copy
-      x[c] = tmp
-
-
-
-![png](Bias%20Evaluation%20%26%20Explainability_files/Bias%20Evaluation%20%26%20Explainability_63_1.png)
-
-
-# 2.3) Local black box model evaluation metrics
 ### Overview of methods
 
 ![](images/alibi-table.jpg)
@@ -1243,6 +1402,32 @@ imp = xai.feature_importance(X_valid, y_valid, lambda x, y: model.evaluate(f_in(
 <div style="float: left; width: 50%">
 <img src="images/anchorimage.jpg">
 </div>
+
+## Let's first train our model with the new, more reasonable dataset
+
+
+```python
+# Let's start by building our model with our newly balanced dataset
+model = build_model(X)
+model.fit(f_in(X_train), y_train, epochs=20, batch_size=512, shuffle=True, validation_data=(f_in(X_valid), y_valid), callbacks=[PlotLossesKeras()], verbose=0, validation_split=0.05,)
+probabilities = model.predict(f_in(X_valid))
+pred = f_out(probabilities)
+```
+
+
+![png](Bias%20Evaluation%20%26%20Explainability_files/Bias%20Evaluation%20%26%20Explainability_51_0.png)
+
+
+    Log-loss (cost function):
+    training   (min:    0.311, max:    0.587, cur:    0.311)
+    validation (min:    0.312, max:    0.476, cur:    0.312)
+    
+    Accuracy:
+    training   (min:    0.735, max:    0.857, cur:    0.855)
+    validation (min:    0.794, max:    0.857, cur:    0.857)
+
+
+## We can now use the Tabular Anchor technique in Alibi
 
 
 ```python
@@ -1265,7 +1450,7 @@ print("Explainer built")
 
 
 ```python
-X_test_alibi[:1]
+X_test_alibi[:1] 
 ```
 
 
@@ -1284,9 +1469,9 @@ print('Precision: %.2f' % explanation['precision'])
 print('Coverage: %.2f' % explanation['coverage'])
 ```
 
-    Anchor: Marital Status = Separated AND Sex = Female AND Capital Gain <= 0.00
+    Anchor: Marital Status = Separated AND Sex = Female
     Precision: 0.97
-    Coverage: 0.10
+    Coverage: 0.11
 
 
 # Counterfactual Explanations
@@ -1294,6 +1479,79 @@ print('Coverage: %.2f' % explanation['coverage'])
 ### The counterfactual explanation of an outcome or a situation Y takes the form “If X had not occured, Y would not have occured” 
 
 ![](images/counterfactuals7.jpg)
+
+### We load a convolutional neural network
+#### Explainability techniques work with any classifier
+
+
+```python
+cnn = load_model('mnist_cnn.h5')
+cf_X = cf_x_test[0].reshape((1,) + cf_x_test[0].shape)
+plt.imshow(cf_X.reshape(28, 28));
+```
+
+
+![png](Bias%20Evaluation%20%26%20Explainability_files/Bias%20Evaluation%20%26%20Explainability_58_0.png)
+
+
+### Build a counterfactual explanation
+#### We can select the target class we want to aim for
+
+
+```python
+shape = (1,) + cf_x_train.shape[1:]
+target_class = 9 # any class other than 7 will do
+
+cf = CounterFactual(cnn, shape=shape, target_class=target_class, target_proba=1.0, max_iter=20)
+explanation = cf.explain(cf_X)
+
+print(f"Counterfactual prediction: {explanation['cf']['class']} with probability {explanation['cf']['proba'][0]}")
+plt.imshow(explanation['cf']['X'].reshape(28, 28));
+```
+
+    Counterfactual prediction: 9 with probability [2.8820663e-12 3.0502541e-11 5.0862967e-09 2.1951721e-06 3.9167953e-05
+     7.8527846e-06 2.6525455e-14 9.4558978e-05 7.3595431e-05 9.9978262e-01]
+
+
+
+![png](Bias%20Evaluation%20%26%20Explainability_files/Bias%20Evaluation%20%26%20Explainability_60_1.png)
+
+
+
+```python
+show_iterations(explanation)
+```
+
+
+![png](Bias%20Evaluation%20%26%20Explainability_files/Bias%20Evaluation%20%26%20Explainability_61_0.png)
+
+
+# Improving computational efficiency
+
+### Our Data Science team at Seldon published a paper that tackles the issue.
+
+<img src="images/with-prototypes.jpg" style="height: 80vh">
+
+### Intersection with Adversarial Robustness
+
+<br>
+
+* Black box explainability techniques allow us to understand black boxes
+
+<br>
+
+* But also provide tools that could be used maliciously
+
+<br>
+
+* Extra considerations need to be taken into account (i.e. when is a model "being explained")
+
+<br>
+
+* Limited access to explainability (auditors, domain experts, etc)
+
+<br>
+
 
 ## 1.5 Shoutout to other tools and techniques
 https://github.com/EthicalML/awesome-production-machine-learning#explaining-black-box-models-and-datasets
@@ -1306,20 +1564,6 @@ https://github.com/EthicalML/awesome-production-machine-learning#explaining-blac
 <hr>
 
 <br><br><br>
-
-#### Key points to cover
-
-<br>
-
-1) Design patterns for explainers
-
-<br>
-
-2) Live demo of explainers
-
-<br>
-
-3) Leveraging humans for explainers
 
 # Seldon Core - Production ML in K8s
 
@@ -1340,21 +1584,53 @@ https://github.com/EthicalML/awesome-production-machine-learning#explaining-blac
 
 <hr>
 
-# 3.1) Design patterns for explainers
+# Design patterns for explainers
 
-![](images/deployment-overview.jpg)
+#### Using Seldon Core for deployment, orchestration and monitoring
 
-#### Setup Seldon in your kubernetes cluster
+<img src="images/prodxai-1.jpg" style="height: 80vh">
+
+# Deploy model
+
+#### We first deploy our model
+
+<img src="images/prodxai-2.jpg" style="height: 80vh">
+
+# Request predictions
+
+#### We can send http request to get a prediction
+
+<img src="images/prodxai-3.jpg" style="height: 80vh">
+
+# Deploy explainer
+
+#### We then would be able ot wrap and deploy the explainer
+
+<img src="images/prodxai-4a.jpg" style="height: 80vh">
+
+# Request explanations
+
+#### We can then send http requsests to the explainer, which sends http requests to the model to reverse engineer it
+
+<img src="images/prodxai-5a.jpg" style="height: 80vh">
+
+## Setup Seldon in your kubernetes cluster
+#### We already have a kubernetes cluster running in our localhost but you can set it up locally
+
+<img src="images/clusterm.jpg">
 
 
 ```bash
 %%bash
-kubectl create clusterrolebinding kube-system-cluster-admin --clusterrole=cluster-admin --serviceaccount=kube-system:default
-helm init
-kubectl rollout status deploy/tiller-deploy -n kube-system
-helm install seldon-core-operator --name seldon-core-operator --repo https://storage.googleapis.com/seldon-charts
-helm install seldon-core-analytics --name seldon-core-analytics --repo https://storage.googleapis.com/seldon-charts
-helm install stable/ambassador --name ambassador
+# kubectl create clusterrolebinding kube-system-cluster-admin --clusterrole=cluster-admin --serviceaccount=kube-system:default
+# helm init
+# kubectl rollout status deploy/tiller-deploy -n kube-system
+# helm install seldon-core-operator --name seldon-core-operator --repo https://storage.googleapis.com/seldon-charts --set engine.image.tag=0.4.1 --set image.tag=0.4.1
+# helm install seldon-core-analytics --name seldon-core-analytics --repo https://storage.googleapis.com/seldon-charts
+# helm install stable/ambassador --name ambassador
+
+
+# kubectl patch svc ambassador --type='json' -p '[{"op":"replace","path":"/spec/type","value":"NodePort"}]'
 ```
 
 
@@ -1387,14 +1663,29 @@ preprocessor.fit(alibi_data)
 from sklearn.ensemble import RandomForestClassifier
 
 np.random.seed(0)
-clf = RandomForestClassifier(n_estimators=50)
-clf.fit(preprocessor.transform(X_train_alibi), y_train_alibi)
+randomforest = RandomForestClassifier(n_estimators=50)
+randomforest.fit(preprocessor.transform(X_train_alibi), y_train_alibi)
 ```
 
 
 ```python
 !mkdir -p pipeline/pipeline_steps/loanclassifier/
 ```
+
+### We have our loan classifier models
+#### Currently a random forest classifier and a preprocessor
+
+
+```python
+print(f"Input: {X_test_alibi[:1]}")
+print(f"Predicted class: {randomforest.predict(preprocessor.transform(X_test_alibi[:1]))}")
+print(f"Probabilities: {randomforest.predict_proba(preprocessor.transform(X_test_alibi[:1]))}")
+```
+
+    Input: [[52  4  0  2  8  4  2  0  0  0 60  9]]
+    Predicted class: [0]
+    Probabilities: [[0.86 0.14]]
+
 
 #### Save the model artefacts so we can deploy them
 
@@ -1406,7 +1697,7 @@ with open("pipeline/pipeline_steps/loanclassifier/preprocessor.dill", "wb") as p
     dill.dump(preprocessor, prep_f)
     
 with open("pipeline/pipeline_steps/loanclassifier/model.dill", "wb") as model_f:
-    dill.dump(clf, model_f)
+    dill.dump(randomforest, model_f)
 ```
 
 #### Build a Model wrapper that uses the trained models through a predict function
@@ -1435,13 +1726,15 @@ class Model:
 
 ```python
 %%writefile pipeline/pipeline_steps/loanclassifier/requirements.txt
-scikit-learn==0.20.1
 dill==0.2.9
 scikit-image==0.15.0
 scikit-learn==0.20.1
 scipy==1.1.0
-numpy==1.15.4
+numpy==1.17.1
 ```
+
+    Overwriting pipeline/pipeline_steps/loanclassifier/requirements.txt
+
 
 
 ```python
@@ -1461,7 +1754,7 @@ PERSISTENCE=0
 
 
 ```python
-!s2i build pipeline/pipeline_steps/loanclassifier seldonio/seldon-core-s2i-python3:0.8 loanclassifier:0.1
+!s2i build pipeline/pipeline_steps/loanclassifier seldonio/seldon-core-s2i-python3:0.11 loanclassifier:0.1
 ```
 
 #### Define the graph of your pipeline with individual models
@@ -1500,31 +1793,63 @@ spec:
 !kubectl apply -f pipeline/pipeline_steps/loanclassifier/loanclassifiermodel.yaml
 ```
 
-#### Now we can send data through the REST API
+    seldondeployment.machinelearning.seldon.io/loanclassifier configured
+
+
+#### We can now send a request through HTTP
 
 
 ```python
-X_test_alibi[:1]
+batch = X_test_alibi[:1]
+print(batch)
 ```
 
+    [[52  4  0  2  8  4  2  0  0  0 60  9]]
 
 
 
-    array([[52,  4,  0,  2,  8,  4,  2,  0,  0,  0, 60,  9]])
+```python
+from seldon_core.seldon_client import SeldonClient
+
+sc = SeldonClient(
+    gateway="ambassador", 
+    gateway_endpoint="localhost:80",
+    deployment_name="loanclassifier",
+    payload_type="ndarray",
+    namespace="default",
+    transport="rest")
+
+client_prediction = sc.predict(data=batch)
+
+print(client_prediction.response.data.ndarray)
+```
+
+    values {
+      list_value {
+        values {
+          number_value: 0.86
+        }
+        values {
+          number_value: 0.14
+        }
+      }
+    }
+    
 
 
+#### Now we can send data through the REST API
 
 
 ```bash
 %%bash
 curl -X POST -H 'Content-Type: application/json' \
     -d "{'data': {'names': ['text'], 'ndarray': [[52,  4,  0,  2,  8,  4,  2,  0,  0,  0, 60,  9]]}}" \
-    http://localhost:80/seldon/default/loanclassifier/api/v0.1/predictions
+    "http://localhost:80/seldon/default/loanclassifier/api/v0.1/predictions"
 ```
 
     {
       "meta": {
-        "puid": "96cmdkc4k1c6oassvpnpasqbgf",
+        "puid": "9naau11chptmvhgjapkng6a13r",
         "tags": {
         },
         "routing": {
@@ -1542,54 +1867,7 @@ curl -X POST -H 'Content-Type: application/json' \
 
       % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
                                      Dload  Upload   Total   Spent    Left  Speed
-    100   356  100   264  100    92  11000   3833 --:--:-- --:--:-- --:--:-- 15478
-
-
-#### We can also reach it with the Python Client
-
-
-```python
-from seldon_core.seldon_client import SeldonClient
-
-batch = X_test_alibi[:1]
-
-sc = SeldonClient(
-    gateway="ambassador", 
-    gateway_endpoint="localhost:80",
-    deployment_name="loanclassifier",
-    payload_type="ndarray",
-    namespace="default",
-    transport="rest")
-
-client_prediction = sc.predict(data=batch)
-
-print(client_prediction.response)
-```
-
-    meta {
-      puid: "hv4dnmr8m3ckgrhtnc48rs7mjg"
-      requestPath {
-        key: "model"
-        value: "loanclassifier:0.1"
-      }
-    }
-    data {
-      names: "t:0"
-      names: "t:1"
-      ndarray {
-        values {
-          list_value {
-            values {
-              number_value: 0.86
-            }
-            values {
-              number_value: 0.14
-            }
-          }
-        }
-      }
-    }
-    
+    100   356  100   264  100    92  13200   4600 --:--:-- --:--:-- --:--:-- 18736
 
 
 #### Now we can create an explainer for our model
@@ -1598,7 +1876,7 @@ print(client_prediction.response)
 ```python
 from alibi.explainers import AnchorTabular
 
-predict_fn = lambda x: clf.predict(preprocessor.transform(x))
+predict_fn = lambda x: randomforest.predict(preprocessor.transform(x))
 explainer = AnchorTabular(predict_fn, alibi_feature_names, categorical_names=alibi_category_map)
 explainer.fit(X_train_alibi, disc_perc=[25, 50, 75])
 
@@ -1609,14 +1887,15 @@ print('Precision: %.2f' % explanation['precision'])
 print('Coverage: %.2f' % explanation['coverage'])
 ```
 
-    Anchor: Marital Status = Separated AND Sex = Female AND Capital Gain <= 0.00
-    Precision: 0.97
-    Coverage: 0.10
+    Anchor: Marital Status = Separated AND Sex = Female AND Relationship = Unmarried
+    Precision: 0.99
+    Coverage: 0.05
 
+
+#### But now we can use the remote model we have in production
 
 
 ```python
-
 def predict_remote_fn(X):
     from seldon_core.seldon_client import SeldonClient
     from seldon_core.utils import get_data_from_proto
@@ -1644,19 +1923,6 @@ def predict_remote_fn(X):
 
 ```
 
-#### But now we can use the remote model we have in production
-
-
-```python
-# Summary of the predict_remote_fn
-def predict_remote_fn(X):
-    ....
-    sc = SeldonClient(...)
-    prediction = sc.predict(data=X)
-    y = get_data_from_proto(prediction.response)
-    return y
-```
-
 #### And train our explainer to use the remote function
 
 
@@ -1666,7 +1932,7 @@ from seldon_core.utils import get_data_from_proto
 explainer = AnchorTabular(predict_remote_fn, alibi_feature_names, categorical_names=alibi_category_map)
 explainer.fit(X_train_alibi, disc_perc=[25, 50, 75])
 
-explanation = explainer.explain(X_test_alibi[idx], threshold=0.95)
+explanation = explainer.explain(batch, threshold=0.95)
 
 print('Anchor: %s' % (' AND '.join(explanation['names'])))
 print('Precision: %.2f' % explanation['precision'])
@@ -1674,7 +1940,7 @@ print('Coverage: %.2f' % explanation['coverage'])
 ```
 
     Anchor: Marital Status = Separated AND Sex = Female
-    Precision: 0.97
+    Precision: 0.98
     Coverage: 0.11
 
 
@@ -1725,17 +1991,40 @@ class NumpyEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 ```
 
+
+```python
+%%writefile pipeline/pipeline_steps/loanclassifier-explainer/requirements.txt
+scikit-learn==0.20.1
+alibi==0.3.0
+dill==0.2.9
+scikit-image==0.15.0
+scikit-learn==0.20.1
+scipy==1.1.0
+numpy==1.17.1
+```
+
+
+```python
+!mkdir pipeline/pipeline_steps/loanclassifier-explainer/.s2i
+```
+
+
+```python
+%%writefile pipeline/pipeline_steps/loanclassifier-explainer/.s2i/environment
+MODEL_NAME=Explainer
+API_TYPE=REST
+SERVICE_TYPE=MODEL
+PERSISTENCE=0
+```
+
+### Build the container for the explainer
+
+
+```python
+!s2i build pipeline/pipeline_steps/loanclassifier-explainer seldonio/seldon-core-s2i-python3:0.11 loanclassifier-explainer:0.1
+```
+
 #### Add config files to build image with script
-
-
-```python
-!s2i build pipeline/pipeline_steps/loanclassifier-explainer seldonio/seldon-core-s2i-python3:0.8 loanclassifier-explainer:0.1
-```
-
-
-```python
-!mkdir -p pipeline/pipeline_steps/loanclassifier-explainer
-```
 
 
 ```python
@@ -1748,6 +2037,10 @@ metadata:
   name: loanclassifier-explainer
 spec:
   name: loanclassifier-explainer
+  annotations:             
+    seldon.io/rest-read-timeout: "100000"
+    seldon.io/rest-connection-timeout: "100000"
+    seldon.io/grpc-read-timeout: "100000"
   predictors:
   - componentSpecs:
     - spec:
@@ -1771,7 +2064,35 @@ spec:
 !kubectl apply -f pipeline/pipeline_steps/loanclassifier-explainer/loanclassifiermodel-explainer.yaml
 ```
 
+    seldondeployment.machinelearning.seldon.io/loanclassifier-explainer configured
+
+
 #### Now we can request explanations throught the REST API
+
+
+```python
+from seldon_core.seldon_client import SeldonClient
+import json
+
+batch = X_test_alibi[:1]
+print(batch)
+
+sc = SeldonClient(
+    gateway="ambassador", 
+    gateway_endpoint="localhost:80",
+    deployment_name="loanclassifier-explainer",
+    payload_type="ndarray",
+    namespace="default",
+    transport="rest")
+
+client_prediction = json.loads(sc.predict(data=batch).response.strData)
+
+print(client_prediction["names"])
+```
+
+    [[52  4  0  2  8  4  2  0  0  0 60  9]]
+    ['Marital Status = Separated', 'Sex = Female']
+
 
 
 ```bash
@@ -1783,7 +2104,7 @@ curl -X POST -H 'Content-Type: application/json' \
 
     {
       "meta": {
-        "puid": "ohbll5bcpu9gg7jjj1unll4155",
+        "puid": "5q5bavp0qo1qg247lcml9864vl",
         "tags": {
         },
         "routing": {
@@ -1793,58 +2114,55 @@ curl -X POST -H 'Content-Type: application/json' \
         },
         "metrics": []
       },
-      "strData": "{\"names\": [\"Marital Status = Separated\", \"Sex = Female\"], \"precision\": 0.9629629629629629, \"coverage\": 0.1078, \"raw\": {\"feature\": [3, 7], \"mean\": [0.9002808988764045, 0.9629629629629629], \"precision\": [0.9002808988764045, 0.9629629629629629], \"coverage\": [0.1821, 0.1078], \"examples\": [{\"covered\": [[46, 4, 4, 2, 2, 1, 4, 1, 0, 0, 45, 9], [24, 4, 1, 2, 6, 3, 2, 1, 0, 0, 40, 9], [39, 4, 4, 2, 4, 1, 4, 1, 4650, 0, 44, 9], [40, 4, 0, 2, 5, 4, 4, 0, 0, 0, 32, 9], [39, 4, 1, 2, 8, 0, 4, 1, 3103, 0, 50, 9], [45, 4, 1, 2, 6, 5, 4, 0, 0, 0, 42, 9], [41, 4, 1, 2, 5, 1, 4, 1, 0, 0, 40, 9], [40, 4, 4, 2, 2, 0, 4, 1, 0, 0, 40, 9], [58, 4, 3, 2, 2, 2, 4, 0, 0, 0, 45, 5], [23, 4, 1, 2, 5, 1, 4, 1, 0, 0, 50, 9]], \"covered_true\": [[33, 4, 4, 2, 2, 0, 4, 1, 0, 0, 40, 9], [70, 0, 4, 2, 0, 0, 4, 1, 0, 0, 10, 9], [66, 0, 4, 2, 0, 0, 4, 1, 0, 0, 30, 9], [37, 1, 1, 2, 8, 2, 4, 0, 0, 0, 50, 9], [32, 4, 5, 2, 6, 5, 4, 0, 0, 0, 45, 9], [24, 4, 4, 2, 7, 1, 4, 1, 0, 0, 40, 9], [46, 7, 6, 2, 5, 1, 4, 0, 0, 1564, 55, 9], [28, 4, 4, 2, 2, 3, 4, 0, 0, 0, 40, 9], [28, 4, 4, 2, 2, 0, 4, 1, 3411, 0, 40, 9], [45, 4, 0, 2, 2, 0, 4, 1, 0, 0, 40, 9]], \"covered_false\": [[51, 4, 6, 2, 5, 1, 4, 0, 0, 2559, 50, 9], [35, 4, 1, 2, 5, 0, 4, 1, 0, 0, 48, 9], [48, 4, 5, 2, 5, 0, 4, 1, 0, 0, 40, 9], [41, 4, 5, 2, 8, 0, 4, 1, 0, 1977, 65, 9], [51, 6, 5, 2, 8, 4, 4, 1, 25236, 0, 50, 9], [46, 4, 4, 2, 2, 0, 4, 1, 0, 0, 75, 9], [52, 6, 1, 2, 1, 5, 4, 0, 99999, 0, 30, 9], [55, 2, 5, 2, 8, 0, 4, 1, 0, 0, 55, 9], [46, 4, 3, 2, 5, 4, 0, 1, 0, 0, 40, 9], [39, 4, 6, 2, 8, 5, 4, 0, 15024, 0, 47, 9]], \"uncovered_true\": [], \"uncovered_false\": []}, {\"covered\": [[52, 4, 4, 2, 1, 4, 4, 0, 0, 1741, 38, 9], [38, 4, 4, 2, 1, 3, 4, 0, 0, 0, 40, 9], [53, 4, 5, 2, 5, 4, 4, 0, 0, 1876, 38, 9], [54, 4, 4, 2, 8, 1, 4, 0, 0, 0, 43, 9], [43, 2, 1, 2, 5, 4, 4, 0, 0, 625, 40, 9], [27, 1, 4, 2, 8, 4, 2, 0, 0, 0, 40, 9], [47, 4, 4, 2, 1, 1, 4, 0, 0, 0, 35, 9], [54, 4, 4, 2, 8, 4, 4, 0, 0, 0, 40, 3], [43, 4, 4, 2, 8, 1, 4, 0, 0, 0, 50, 9], [53, 4, 4, 2, 5, 1, 4, 0, 0, 0, 40, 9]], \"covered_true\": [[54, 4, 4, 2, 8, 4, 4, 0, 0, 0, 40, 3], [41, 4, 4, 2, 1, 4, 4, 0, 0, 0, 40, 9], [58, 4, 4, 2, 1, 1, 4, 0, 0, 0, 40, 9], [36, 4, 4, 2, 6, 1, 4, 0, 3325, 0, 45, 9], [29, 4, 0, 2, 1, 1, 4, 0, 0, 0, 40, 9], [35, 4, 4, 2, 8, 4, 4, 0, 0, 0, 40, 9], [39, 4, 4, 2, 7, 1, 4, 0, 0, 0, 40, 8], [42, 4, 4, 2, 1, 4, 2, 0, 0, 0, 41, 9], [37, 7, 4, 2, 7, 3, 4, 0, 0, 0, 40, 9], [47, 4, 4, 2, 1, 1, 4, 0, 0, 0, 38, 9]], \"covered_false\": [[55, 5, 4, 2, 6, 4, 4, 0, 0, 0, 50, 9], [33, 7, 2, 2, 5, 5, 4, 0, 0, 0, 48, 9], [39, 4, 6, 2, 8, 5, 4, 0, 15024, 0, 47, 9], [48, 4, 5, 2, 8, 4, 4, 0, 0, 0, 40, 9], [41, 4, 1, 2, 5, 1, 4, 0, 0, 0, 50, 9], [42, 1, 5, 2, 8, 1, 4, 0, 14084, 0, 60, 9], [51, 4, 6, 2, 5, 1, 4, 0, 0, 2559, 50, 9], [52, 6, 1, 2, 1, 5, 4, 0, 99999, 0, 30, 9], [39, 7, 2, 2, 5, 1, 4, 0, 0, 0, 40, 9]], \"uncovered_true\": [], \"uncovered_false\": []}], \"all_precision\": 0, \"num_preds\": 1000101, \"names\": [\"Marital Status = Separated\", \"Sex = Female\"], \"instance\": [[52.0, 4.0, 0.0, 2.0, 8.0, 4.0, 2.0, 0.0, 0.0, 0.0, 60.0, 9.0]], \"prediction\": 0}}"
+      "strData": "{\"names\": [\"Marital Status = Separated\", \"Sex = Female\", \"Education = Associates\"], \"precision\": 0.9739130434782609, \"coverage\": 0.0096, \"raw\": {\"feature\": [3, 7, 2], \"mean\": [0.8801571709233792, 0.9497206703910615, 0.9739130434782609], \"precision\": [0.8801571709233792, 0.9497206703910615, 0.9739130434782609], \"coverage\": [0.1782, 0.1029, 0.0096], \"examples\": [{\"covered\": [[41, 4, 1, 2, 2, 0, 4, 1, 0, 0, 40, 0], [23, 4, 4, 2, 7, 3, 4, 0, 0, 0, 20, 9], [33, 4, 0, 2, 1, 1, 4, 0, 0, 0, 40, 9], [50, 4, 4, 2, 2, 0, 4, 1, 4386, 0, 40, 0], [22, 4, 0, 2, 2, 1, 4, 1, 0, 0, 45, 9], [30, 4, 4, 2, 5, 4, 4, 0, 0, 0, 40, 9], [21, 4, 4, 2, 2, 3, 4, 1, 0, 0, 36, 9], [35, 4, 4, 2, 7, 1, 4, 0, 0, 0, 35, 9], [35, 4, 4, 2, 2, 0, 4, 1, 0, 0, 46, 9], [46, 4, 6, 2, 5, 0, 4, 1, 0, 0, 40, 9]], \"covered_true\": [[40, 4, 3, 2, 2, 0, 4, 1, 0, 0, 55, 9], [30, 4, 4, 2, 5, 4, 4, 0, 0, 0, 40, 9], [33, 4, 1, 2, 5, 1, 4, 1, 0, 0, 40, 1], [28, 4, 4, 2, 2, 0, 4, 1, 0, 0, 40, 9], [28, 4, 1, 2, 1, 1, 4, 1, 0, 0, 21, 9], [25, 0, 4, 2, 0, 3, 2, 1, 0, 0, 40, 0], [31, 4, 3, 2, 2, 0, 4, 1, 0, 0, 40, 9], [31, 0, 3, 2, 0, 1, 4, 0, 0, 0, 25, 9], [43, 4, 4, 2, 2, 0, 4, 1, 0, 0, 40, 9], [50, 4, 4, 2, 4, 0, 4, 1, 0, 0, 38, 9]], \"covered_false\": [[36, 4, 4, 2, 5, 3, 4, 0, 0, 0, 40, 9], [32, 4, 1, 2, 8, 0, 4, 1, 0, 0, 45, 9], [49, 4, 1, 2, 8, 1, 2, 0, 27828, 0, 60, 9], [31, 4, 1, 2, 5, 5, 4, 0, 7688, 0, 43, 9], [52, 4, 5, 2, 5, 0, 4, 1, 0, 0, 50, 9], [31, 4, 2, 2, 5, 0, 4, 1, 0, 1977, 99, 9], [50, 4, 5, 2, 5, 0, 4, 1, 0, 1977, 40, 9], [42, 5, 5, 2, 8, 0, 4, 1, 0, 0, 40, 9], [37, 4, 1, 2, 8, 0, 4, 1, 5178, 0, 40, 9], [57, 2, 5, 2, 8, 0, 4, 1, 0, 0, 50, 9]], \"uncovered_true\": [], \"uncovered_false\": []}, {\"covered\": [[29, 4, 1, 2, 1, 1, 4, 0, 0, 0, 35, 9], [50, 4, 1, 2, 1, 5, 4, 0, 0, 0, 40, 9], [19, 0, 3, 2, 0, 4, 4, 0, 0, 0, 30, 9], [22, 4, 4, 2, 1, 3, 4, 0, 0, 0, 40, 9], [37, 4, 0, 2, 8, 1, 4, 0, 0, 0, 40, 9], [38, 4, 4, 2, 2, 3, 4, 0, 0, 0, 25, 9], [59, 4, 1, 2, 1, 5, 4, 0, 2885, 0, 30, 9], [23, 4, 1, 2, 6, 1, 4, 0, 0, 0, 45, 9], [31, 4, 0, 2, 6, 3, 4, 0, 0, 0, 38, 9], [50, 4, 4, 2, 1, 2, 1, 0, 0, 0, 40, 7]], \"covered_true\": [[21, 4, 4, 2, 7, 3, 4, 0, 0, 0, 35, 9], [25, 0, 4, 2, 0, 4, 4, 0, 0, 0, 50, 9], [56, 4, 3, 2, 7, 4, 2, 0, 0, 0, 45, 9], [40, 0, 4, 2, 0, 5, 2, 0, 3464, 0, 20, 9], [52, 4, 4, 2, 6, 5, 4, 0, 0, 0, 52, 1], [25, 4, 4, 2, 4, 1, 3, 0, 0, 0, 40, 9], [21, 4, 4, 2, 6, 4, 0, 0, 0, 0, 38, 9], [21, 4, 4, 2, 6, 3, 4, 0, 0, 0, 20, 9], [26, 4, 4, 2, 1, 1, 4, 0, 0, 0, 40, 9], [25, 4, 0, 2, 5, 5, 4, 0, 0, 1887, 40, 9]], \"covered_false\": [[56, 6, 4, 2, 1, 4, 4, 0, 99999, 0, 40, 9], [33, 2, 1, 2, 5, 1, 4, 0, 0, 0, 50, 9], [63, 4, 1, 2, 5, 5, 4, 0, 7688, 0, 36, 9], [67, 4, 4, 2, 1, 1, 4, 0, 15831, 0, 16, 3], [43, 4, 5, 2, 5, 4, 4, 0, 0, 2547, 40, 9], [49, 4, 1, 2, 8, 1, 2, 0, 27828, 0, 60, 9], [62, 4, 4, 2, 2, 1, 4, 0, 8614, 0, 39, 9], [31, 4, 1, 2, 5, 5, 4, 0, 7688, 0, 43, 9], [36, 4, 4, 2, 5, 3, 4, 0, 0, 0, 40, 9], [53, 4, 2, 2, 5, 5, 4, 0, 99999, 0, 37, 9]], \"uncovered_true\": [], \"uncovered_false\": []}, {\"covered\": [[23, 7, 0, 2, 8, 1, 4, 0, 0, 0, 40, 9], [40, 4, 0, 2, 7, 5, 4, 0, 0, 0, 35, 9], [57, 4, 0, 2, 7, 4, 4, 0, 0, 0, 40, 9], [39, 4, 0, 2, 7, 0, 1, 0, 0, 0, 40, 7], [72, 4, 0, 2, 7, 4, 4, 0, 0, 0, 16, 9], [43, 4, 0, 2, 5, 0, 4, 0, 0, 0, 40, 9], [33, 4, 0, 2, 2, 4, 0, 0, 0, 0, 40, 9], [23, 4, 0, 2, 2, 4, 4, 0, 0, 0, 50, 9], [53, 6, 0, 2, 6, 0, 4, 0, 0, 0, 40, 1], [42, 4, 0, 2, 5, 4, 4, 0, 0, 0, 40, 9]], \"covered_true\": [[37, 4, 0, 2, 8, 0, 4, 0, 0, 1977, 60, 9], [18, 4, 0, 2, 6, 3, 4, 0, 0, 0, 25, 9], [47, 6, 0, 2, 8, 0, 4, 0, 0, 2415, 50, 9], [48, 7, 0, 2, 1, 0, 4, 0, 0, 0, 35, 9], [19, 4, 0, 2, 1, 3, 2, 0, 0, 0, 40, 9], [34, 4, 0, 2, 5, 0, 4, 0, 0, 0, 40, 6], [59, 4, 0, 2, 5, 4, 4, 0, 0, 0, 50, 9], [30, 4, 0, 2, 1, 4, 4, 0, 0, 0, 24, 9], [28, 2, 0, 2, 5, 1, 4, 0, 0, 0, 40, 9], [34, 4, 0, 2, 2, 0, 4, 0, 0, 0, 40, 3]], \"covered_false\": [[39, 4, 0, 2, 5, 5, 4, 0, 7688, 0, 20, 9], [40, 4, 0, 2, 8, 0, 4, 0, 0, 2415, 45, 9], [38, 4, 0, 2, 5, 0, 4, 0, 99999, 0, 65, 9], [70, 5, 0, 2, 8, 0, 4, 0, 0, 2377, 50, 9], [46, 4, 0, 2, 6, 0, 4, 0, 15024, 0, 40, 9], [42, 4, 0, 2, 6, 0, 4, 0, 7298, 0, 40, 9]], \"uncovered_true\": [], \"uncovered_false\": []}], \"all_precision\": 0, \"num_preds\": 1000101, \"names\": [\"Marital Status = Separated\", \"Sex = Female\", \"Education = Associates\"], \"instance\": [[52.0, 4.0, 0.0, 2.0, 8.0, 4.0, 2.0, 0.0, 0.0, 0.0, 60.0, 9.0]], \"prediction\": 0}}"
     }
 
       % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
                                      Dload  Upload   Total   Spent    Left  Speed
-    100  3464  100  3372  100    92   3318     90  0:00:01  0:00:01 --:--:--  3409
+    100  4784  100  4692  100    92   2329     45  0:00:02  0:00:02 --:--:--  2375
 
 
 ### Now we have an explainer deployed!
 
-![](images/deployment-overview.jpg)
+![](images/xai-deployment.jpg)
 
 # Visualise metrics and explanations 
 
 ![](images/deploy-expl.jpg)
 
-# Leveraging Humans for Explanations
-
-
-
-![](images/smile1.jpg)
-
-![](images/smile2.jpg)
-
-![](images/smile3.jpg)
-
 # Revisiting our workflow
 
 <img src="images/gml.png" style="width=100vw">
 
-# Explainability and Bias Evaluation
+# A practical guide towards explainability
+# and bias evaluation in machine learning
 
 <br>
 <br>
 <br>
 <br>
 <br>
+
 <br>
 
-## Alejandro Saucedo
+<br>
+
+<br>
+<br>
+
+<h2>Alejandro Saucedo</h2>
 <br>
 Chief Scientist, The Institute for Ethical AI & Machine Learning
+<br>
+Director of ML Engineering, Seldon Technologies
 
 <br>
 <br>
-
-[github.com/ethicalml/explainability-and-bias](github.com/ethicalml/bias-analysis)
-
+<h3>Twitter: AxSaucedo</h3>
+<br>
+<h3>Slides: github.com/EthicalML/explainability-and-bias</h3>
 
 <br><br><br>
 
 <hr>
-
-<br><br><br>
 
