@@ -91,3 +91,4 @@ data.tfrecord
 
 src
 
+mnist_cnn.h5

@@ -6,6 +6,10 @@ metadata:
   name: loanclassifier-explainer
 spec:
   name: loanclassifier-explainer
+  annotations:             
+    seldon.io/rest-read-timeout: "100000"
+    seldon.io/rest-connection-timeout: "100000"
+    seldon.io/grpc-read-timeout: "100000"
   predictors:
   - componentSpecs:
     - spec:
