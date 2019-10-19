@@ -17,7 +17,7 @@ This repo contains the full Jupyter Notebook and code for the Python talk on mac
         This <a href="https://www.youtube.com/watch?v=vq8mDiDODhc">Video of talk presented at PyData London 2019 </a> which provides an overview on the motivations for machine learning explainability as well as techniques to introduce explainability and mitigate undesired biases.
     </td>
     <td width="70%">
-        <a href="https://www.youtube.com/watch?v=vq8mDiDODhc"><img src="images/video.jpg"></a>
+        <a href="https://www.youtube.com/watch?v=vq8mDiDODhc"><img src="images/video-pydata.jpg"></a>
     </td>
   </tr>
 </table>
