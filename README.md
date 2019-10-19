@@ -9,30 +9,18 @@
 
 This repo contains the full Jupyter Notebook and code for the Python talk on machine learning explainabilty and algorithmic bias. 
 
-You can find the presentation in the following formats:
-* [Online slides (Reveal.JS) format](https://ethicalml.github.io/explainability-and-bias/#/)
-* [Jupyter notebook to follow code examples](https://github.com/EthicalML/explainability-and-bias/blob/master/Bias%20Evaluation%20%26%20Explainability.ipynb) (If it doesn't load it may be due to size)
-* Markdown format converted using jupyter nbconvert (scroll down)
-
-This example uses the following open source libraries:
-* <a href="https://github.com/EthicalML/XAI">XAI</a> - We use XAI to showcase data analysis techniques 
-* <a href="https://github.com/SeldonIO/Alibi">Alibi</a> - We use Alibi to dive into black box model evaluation techniques 
-* <a href="https://github.com/SeldonIO/Seldon-core">Seldon Core</a> - We use seldon core to deploy and serve ML models and ML explainers
-
-<!--
 ## YouTube Video of Talk
 
 <table>
   <tr>
     <td width="30%">
-        This <a href="https://www.youtube.com/watch?v=rq95qznOZKw">video of the talk presented at the PyCon By 2019 Conference </a> which provides an overview on the motivations for machine learning explainability as well as techniques to introduce explainability and mitigate undesired biases.
+        This <a href="https://www.youtube.com/watch?v=vq8mDiDODhc">Video of talk presented at PyData London 2019 </a> which provides an overview on the motivations for machine learning explainability as well as techniques to introduce explainability and mitigate undesired biases.
     </td>
     <td width="70%">
-        <a href="https://www.youtube.com/watch?v=rq95qznOZKw"><img src="images/video.jpg"></a>
+        <a href="https://www.youtube.com/watch?v=vq8mDiDODhc"><img src="images/video.jpg"></a>
     </td>
   </tr>
 </table>
--->
 
 ## Live Slides (Reveal.JS)
 
@@ -47,6 +35,19 @@ This example uses the following open source libraries:
   </tr>
 </table>
 
+## Examples to try it yourself
+
+Code examples to try it yourself:
+* [Data analysis for data imbalances with XAI](https://github.com/EthicalML/xai/blob/master/examples/XAI%20Tabular%20Data%20Example%20Usage.ipynb)
+* [Black box model evaluation for MNISt with Alibi](https://github.com/seldonio/seldon-core/tree/master/examples/explainers/alibi_anchor_tabular)
+* [Production monitoring with Seldon and Alibi](https://github.com/seldonio/seldon-core/tree/master/examples/explainers/alibi_anchor_tabular)
+
+## Open Source Tools used
+
+This example uses the following open source libraries:
+* <a href="https://github.com/EthicalML/XAI">XAI</a> - We use XAI to showcase data analysis techniques 
+* <a href="https://github.com/SeldonIO/Alibi">Alibi</a> - We use Alibi to dive into black box model evaluation techniques 
+* <a href="https://github.com/SeldonIO/Seldon-core">Seldon Core</a> - We use seldon core to deploy and serve ML models and ML explainers
 
 # Summarised version in markdown format
 In this next section below you can find the sumarised version of [Jupyter notebook]() / [presentation slides]() in Markdown format.
